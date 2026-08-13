@@ -69,6 +69,7 @@ type AccountHandler struct {
 	codexHarvest            *service.CodexHarvestService
 	openAIGatewayService    *service.OpenAIGatewayService
 	cfg                     *config.Config
+	opencodeGoUsage         *service.OpenCodeGoUsageService
 }
 
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.
@@ -87,6 +88,10 @@ func (h *AccountHandler) SetCodexTicketSettings(settings *service.SettingService
 
 func (h *AccountHandler) SetOpenAIGatewayService(gateway *service.OpenAIGatewayService) {
 	h.openAIGatewayService = gateway
+}
+
+func (h *AccountHandler) SetOpenCodeGoUsageService(usage *service.OpenCodeGoUsageService) {
+	h.opencodeGoUsage = usage
 }
 
 // NewAccountHandler creates a new admin account handler
