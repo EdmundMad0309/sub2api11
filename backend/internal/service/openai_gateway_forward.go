@@ -139,9 +139,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	nativeCNResponses := account.UsesNativeCNResponses()
-	nativeDeepSeekResponses := account.Platform == PlatformDeepseek && nativeCNResponses
-	if nativeDeepSeekResponses && account.Type == AccountTypeAPIKey && !compactPath &&
-		needsOpenAIResponsesClientToolAdaptation(body) {
+	// 先判定是否要走 Chat fallback：fallback 会自己从原始 body 重新计算 custom /
+	// tool_search / namespace 工具并正确还原 custom_tool_call。若这里先做 client-tool
+	// adaptation 把顶层 custom 改写成 function，再进 fallback 时回程查不到 custom
+	// 映射，会把 custom_tool_call 降级成 function_call（Codex 判 unsupported call）。
+	// 因此进入 fallback 的请求必须跳过 adaptation。
+	if shouldAdaptDeepSeekResponsesClientTools(account, body, compactPath) {
 		adaptedBody, mapping, adaptErr := adaptOpenAIResponsesClientTools(body)
 		if adaptErr != nil {
 			return nil, fmt.Errorf("adapt DeepSeek Responses client tools: %w", adaptErr)
@@ -1406,6 +1409,21 @@ const deepSeekAPIHost = "api.deepseek.com"
 // DeepSeek」的账号：把 GPT 系模型名映射到 DeepSeek 时 Codex 正是这样接入的，
 // 此时 platform 字段不代表真实上游，只能按目标 hostname 判定——与
 // requiresSystemChatRole 用 hostname 识别严格供应商是同一思路。
+// shouldAdaptDeepSeekResponsesClientTools 决定是否在进入原生 DeepSeek Responses 前
+// 改写 client-only 工具。需要走 Chat fallback 的请求（含 input[].additional_tools 的
+// Responses Lite 形状）必须跳过：fallback 会从原始 body 重新计算 custom / tool_search /
+// namespace 工具并正确还原 custom_tool_call，先行改写会丢失顶层 custom 映射，回程
+// 降级成 function_call（Codex 判 unsupported call）。
+func shouldAdaptDeepSeekResponsesClientTools(account *Account, body []byte, compactPath bool) bool {
+	return account != nil &&
+		account.Platform == PlatformDeepseek &&
+		account.UsesNativeCNResponses() &&
+		account.Type == AccountTypeAPIKey &&
+		!compactPath &&
+		!shouldForwardOpenAIResponsesViaChatCompletions(account, body) &&
+		needsOpenAIResponsesClientToolAdaptation(body)
+}
+
 func isDeepSeekResponsesUpstream(account *Account) bool {
 	if account == nil {
 		return false
