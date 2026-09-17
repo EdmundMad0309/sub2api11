@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 // deepSeekResponsesLiteBody 是 Codex 对 GPT 系模型名发出的 Responses Lite 形状：
@@ -199,6 +200,56 @@ func TestShouldForwardOpenAIResponsesViaChatCompletions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.want, shouldForwardOpenAIResponsesViaChatCompletions(tt.account, tt.body))
+		})
+	}
+}
+
+func TestStripDeepSeekUnsupportedChatResponseFormat(t *testing.T) {
+	deepseekViaOpenAI := &Account{
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Extra:       map[string]any{"openai_responses_supported": true},
+		Credentials: map[string]any{"base_url": "https://api.deepseek.com"},
+	}
+	deepseekNative := &Account{
+		Platform:    PlatformDeepseek,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_protocol": APIProtocolAdaptive},
+	}
+	openAIBase := &Account{
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"base_url": "https://api.openai.com/v1"},
+	}
+
+	jsonSchema := []byte(`{"model":"gpt-5.6-sol","response_format":{"type":"json_schema","json_schema":{"name":"x","schema":{"type":"object"}}}}`)
+	jsonObject := []byte(`{"model":"gpt-5.6-sol","response_format":{"type":"json_object"}}`)
+	textFormat := []byte(`{"model":"gpt-5.6-sol","response_format":{"type":"text"}}`)
+	noFormat := []byte(`{"model":"gpt-5.6-sol"}`)
+
+	tests := []struct {
+		name     string
+		account  *Account
+		body     []byte
+		wantGone bool
+	}{
+		{name: "deepseek_openai_platform_json_schema_stripped", account: deepseekViaOpenAI, body: jsonSchema, wantGone: true},
+		{name: "deepseek_native_json_schema_stripped", account: deepseekNative, body: jsonSchema, wantGone: true},
+		{name: "deepseek_json_object_kept", account: deepseekViaOpenAI, body: jsonObject, wantGone: false},
+		{name: "deepseek_text_kept", account: deepseekViaOpenAI, body: textFormat, wantGone: false},
+		{name: "deepseek_no_format_unchanged", account: deepseekViaOpenAI, body: noFormat, wantGone: false},
+		{name: "openai_json_schema_kept", account: openAIBase, body: jsonSchema, wantGone: false},
+		{name: "nil_account_kept", account: nil, body: jsonSchema, wantGone: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stripDeepSeekUnsupportedChatResponseFormat(tt.account, tt.body)
+			if tt.wantGone {
+				require.False(t, gjson.GetBytes(got, "response_format").Exists(), "response_format should be removed, got %s", got)
+			} else {
+				// 非剔除路径必须原样返回（字节一致）。
+				require.Equal(t, string(tt.body), string(got))
+			}
 		})
 	}
 }

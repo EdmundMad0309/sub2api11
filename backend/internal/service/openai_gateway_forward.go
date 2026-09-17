@@ -1407,6 +1407,9 @@ const deepSeekAPIHost = "api.deepseek.com"
 // 此时 platform 字段不代表真实上游，只能按目标 hostname 判定——与
 // requiresSystemChatRole 用 hostname 识别严格供应商是同一思路。
 func isDeepSeekResponsesUpstream(account *Account) bool {
+	if account == nil {
+		return false
+	}
 	if account.Platform == PlatformDeepseek {
 		return account.UsesNativeCNResponses()
 	}
