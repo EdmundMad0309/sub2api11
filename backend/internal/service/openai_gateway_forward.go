@@ -21,7 +21,7 @@ import (
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
-	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+	if shouldForwardOpenAIResponsesViaChatCompletions(account, body) {
 		SetActualOpenAIUpstreamEndpoint(c, "/v1/chat/completions")
 	}
 	filteredBody, filterErr := filterOpenAIResponsesNoneReasoningEffortForAccount(account, body)
@@ -195,7 +195,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		originalModel = reqModel
 	}
 
-	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+	if shouldForwardOpenAIResponsesViaChatCompletions(account, body) {
 		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
 	}
 	SetActualOpenAIUpstreamEndpoint(c, openAIResponsesUpstreamEndpoint)
@@ -1365,6 +1365,35 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 		}
 	}
 	return !openai_compat.ShouldUseResponsesAPI(account.Extra)
+}
+
+// shouldForwardOpenAIResponsesViaChatCompletions 是 chat-completions 回退的统一
+// 路由判定：账号级协议配置或探测结论要求回退，或者入站请求的形状是当前上游无法
+// 正确处理的（见 shouldForwardDeepSeekResponsesLiteViaChatCompletions）。
+func shouldForwardOpenAIResponsesViaChatCompletions(account *Account, body []byte) bool {
+	return shouldForwardOpenAIResponsesViaRawChatCompletions(account) ||
+		shouldForwardDeepSeekResponsesLiteViaChatCompletions(account, body)
+}
+
+// shouldForwardDeepSeekResponsesLiteViaChatCompletions 报告走原生 Responses 的
+// DeepSeek 账号是否应改走 chat 回退路径。
+//
+// DeepSeek 的 /responses 端点会接受 input[].additional_tools 并返回 200，但不会
+// 解析其中的工具声明——模型侧等同于没有任何工具可用，只能把调用写进正文
+// （DSML / <tool_call>{...}</tool_call>）。Codex 对 GPT 系模型名启用 Responses
+// Lite 时正是这个形状；同一上游用原生模型名（工具走顶层 tools）时一切正常。
+//
+// chat 回退路径的 apicompat.EffectiveResponsesTools 会把 additional_tools 提升为
+// 顶层工具，namespace 子工具摊平后回程再还原为 custom_tool_call，因此这里对
+// DeepSeek 显式绕开原生端点。
+func shouldForwardDeepSeekResponsesLiteViaChatCompletions(account *Account, body []byte) bool {
+	if account == nil || account.Type != AccountTypeAPIKey {
+		return false
+	}
+	if account.Platform != PlatformDeepseek || !account.UsesNativeCNResponses() {
+		return false
+	}
+	return openAIRequestBodyHasAdditionalTools(body)
 }
 
 func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {

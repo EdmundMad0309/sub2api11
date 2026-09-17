@@ -1,0 +1,161 @@
+package service
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+// deepSeekResponsesLiteBody 是 Codex 对 GPT 系模型名发出的 Responses Lite 形状：
+// 顶层没有 tools，工具声明挂在 input[].additional_tools 上。
+const deepSeekResponsesLiteBody = `{
+  "model": "gpt-5.6-sol",
+  "input": [
+    {"type": "message", "role": "user", "content": "run echo hi"},
+    {"type": "additional_tools", "role": "developer", "tools": [
+      {"type": "namespace", "name": "functions", "tools": [
+        {"type": "custom", "name": "exec"}
+      ]}
+    ]}
+  ]
+}`
+
+// deepSeekClassicToolsBody 是 Codex 对上游原生模型名发出的传统形状：顶层 tools。
+const deepSeekClassicToolsBody = `{
+  "model": "deepseek-flash",
+  "tools": [
+    {"type": "function", "name": "exec_command", "parameters": {"type": "object"}}
+  ],
+  "input": [{"type": "message", "role": "user", "content": "run echo hi"}]
+}`
+
+func TestOpenAIRequestBodyHasAdditionalTools(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{name: "responses_lite_shape", body: deepSeekResponsesLiteBody, want: true},
+		{name: "classic_top_level_tools", body: deepSeekClassicToolsBody, want: false},
+		{name: "additional_tools_empty", body: `{"input":[{"type":"additional_tools","tools":[]}]}`, want: false},
+		{name: "additional_tools_missing_tools", body: `{"input":[{"type":"additional_tools"}]}`, want: false},
+		{name: "additional_tools_not_array", body: `{"input":[{"type":"additional_tools","tools":{}}]}`, want: false},
+		{name: "input_not_array", body: `{"input":"nope"}`, want: false},
+		{name: "empty_body", body: ``, want: false},
+		{name: "no_input", body: `{"model":"gpt-5.6-sol"}`, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, openAIRequestBodyHasAdditionalTools([]byte(tt.body)))
+		})
+	}
+}
+
+func TestOpenAIRequestBodyHasToolsCoversAdditionalTools(t *testing.T) {
+	// 回归：hasTools 既要认传统顶层 tools，也要认 Responses Lite 的
+	// input[].additional_tools。DeepSeek 原生 /responses 只处理前者。
+	require.True(t, openAIRequestBodyHasTools([]byte(deepSeekResponsesLiteBody)))
+	require.True(t, openAIRequestBodyHasTools([]byte(deepSeekClassicToolsBody)))
+	require.False(t, openAIRequestBodyHasTools([]byte(`{"input":[]}`)))
+}
+
+func TestShouldForwardDeepSeekResponsesLiteViaChatCompletions(t *testing.T) {
+	// adaptive 协议：入站 responses 走原生 CN Responses 端点。
+	nativeAdaptive := &Account{
+		Platform:    PlatformDeepseek,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_protocol": APIProtocolAdaptive},
+	}
+	// 显式 responses 协议。
+	nativeResponses := &Account{
+		Platform:    PlatformDeepseek,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_protocol": APIProtocolResponses},
+	}
+	// 只走 chat completions 的账号本来就不会命中原生端点。
+	chatOnly := &Account{
+		Platform:    PlatformDeepseek,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_protocol": APIProtocolChatCompletions},
+	}
+	// 未配置 api_protocol 的旧账号：GetAPIProtocol 兜底 chat completions。
+	unspecified := &Account{Platform: PlatformDeepseek, Type: AccountTypeAPIKey}
+	// 非 deepseek 平台的原生 responses 账号不受影响。
+	kimiNative := &Account{
+		Platform:    PlatformKimi,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_protocol": APIProtocolAdaptive},
+	}
+	oauthDeepseek := &Account{Platform: PlatformDeepseek, Type: AccountTypeOAuth}
+
+	lite := []byte(deepSeekResponsesLiteBody)
+	classic := []byte(deepSeekClassicToolsBody)
+
+	tests := []struct {
+		name    string
+		account *Account
+		body    []byte
+		want    bool
+	}{
+		// 触发条件：DeepSeek 原生 Responses + Responses Lite 形状。
+		{name: "adaptive_lite_forwards_to_chat", account: nativeAdaptive, body: lite, want: true},
+		{name: "responses_lite_forwards_to_chat", account: nativeResponses, body: lite, want: true},
+		// 传统顶层 tools：DeepSeek 原生端点能正确处理，保持原路径。
+		{name: "adaptive_classic_stays_native", account: nativeAdaptive, body: classic, want: false},
+		{name: "responses_classic_stays_native", account: nativeResponses, body: classic, want: false},
+		// 非原生 Responses 的账号不额外改道。
+		{name: "chat_only_untouched", account: chatOnly, body: lite, want: false},
+		{name: "unspecified_protocol_untouched", account: unspecified, body: lite, want: false},
+		// 其它平台/OAuth 账号不属于本判定的范围。
+		{name: "other_platform_untouched", account: kimiNative, body: lite, want: false},
+		{name: "oauth_untouched", account: oauthDeepseek, body: lite, want: false},
+		{name: "nil_account", account: nil, body: lite, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, shouldForwardDeepSeekResponsesLiteViaChatCompletions(tt.account, tt.body))
+		})
+	}
+}
+
+func TestShouldForwardOpenAIResponsesViaChatCompletions(t *testing.T) {
+	// 账号级配置要求回退时，无论请求形状如何都走 chat 桥。
+	forcedAccount := &Account{
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Extra:       map[string]any{"openai_responses_mode": "force_chat_completions"},
+		Credentials: map[string]any{"api_protocol": APIProtocolAdaptive},
+	}
+	// 探测结论支持 Responses，且请求形状正常：保持原生路径。
+	nativeAccount := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Extra:    map[string]any{"openai_responses_supported": true},
+	}
+	deepseekLite := &Account{
+		Platform:    PlatformDeepseek,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_protocol": APIProtocolAdaptive},
+	}
+
+	lite := []byte(deepSeekResponsesLiteBody)
+	classic := []byte(deepSeekClassicToolsBody)
+
+	tests := []struct {
+		name    string
+		account *Account
+		body    []byte
+		want    bool
+	}{
+		{name: "account_config_forces_chat", account: forcedAccount, body: classic, want: true},
+		{name: "account_config_forces_chat_lite", account: forcedAccount, body: lite, want: true},
+		{name: "native_supported_stays", account: nativeAccount, body: lite, want: false},
+		{name: "deepseek_lite_falls_back", account: deepseekLite, body: lite, want: true},
+		{name: "deepseek_classic_stays", account: deepseekLite, body: classic, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, shouldForwardOpenAIResponsesViaChatCompletions(tt.account, tt.body))
+		})
+	}
+}
