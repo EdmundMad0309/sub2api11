@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -1390,10 +1391,30 @@ func shouldForwardDeepSeekResponsesLiteViaChatCompletions(account *Account, body
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return false
 	}
-	if account.Platform != PlatformDeepseek || !account.UsesNativeCNResponses() {
+	if !isDeepSeekResponsesUpstream(account) {
 		return false
 	}
 	return openAIRequestBodyHasAdditionalTools(body)
+}
+
+// deepSeekAPIHost 是 DeepSeek 官方 API 主机名，Responses 与 Chat Completions 同址。
+const deepSeekAPIHost = "api.deepseek.com"
+
+// isDeepSeekResponsesUpstream 报告该账号当前是否会打到 DeepSeek 的原生 Responses 端点。
+//
+// 除以 DeepSeek 平台配置的账号外，还必须覆盖「platform 填 openai、base_url 指向
+// DeepSeek」的账号：把 GPT 系模型名映射到 DeepSeek 时 Codex 正是这样接入的，
+// 此时 platform 字段不代表真实上游，只能按目标 hostname 判定——与
+// requiresSystemChatRole 用 hostname 识别严格供应商是同一思路。
+func isDeepSeekResponsesUpstream(account *Account) bool {
+	if account.Platform == PlatformDeepseek {
+		return account.UsesNativeCNResponses()
+	}
+	u, err := url.Parse(strings.TrimSpace(account.GetOpenAIBaseURL()))
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(u.Hostname(), deepSeekAPIHost)
 }
 
 func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {

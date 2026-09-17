@@ -88,6 +88,33 @@ func TestShouldForwardDeepSeekResponsesLiteViaChatCompletions(t *testing.T) {
 	}
 	oauthDeepseek := &Account{Platform: PlatformDeepseek, Type: AccountTypeOAuth}
 
+	// 「platform 填 openai、base_url 指向 DeepSeek」：把 GPT 模型名映射到
+	// DeepSeek 时 Codex 的典型接入方式，platform 字段不代表真实上游。
+	openaiDeepseekBase := &Account{
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Extra:       map[string]any{"openai_responses_supported": true},
+		Credentials: map[string]any{"base_url": "https://api.deepseek.com"},
+	}
+	openaiDeepseekBasePath := &Account{
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Extra:       map[string]any{"openai_responses_supported": true},
+		Credentials: map[string]any{"base_url": "https://api.deepseek.com/v1/"},
+	}
+	openaiOtherBase := &Account{
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"base_url": "https://api.openai.com/v1"},
+	}
+	openaiNoBase := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	// 后缀伪造 api.deepseek.com 的域名不得命中（按完整 hostname 比较）。
+	openaiLookalikeHost := &Account{
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"base_url": "https://api.deepseek.com.evil.example"},
+	}
+
 	lite := []byte(deepSeekResponsesLiteBody)
 	classic := []byte(deepSeekClassicToolsBody)
 
@@ -110,6 +137,13 @@ func TestShouldForwardDeepSeekResponsesLiteViaChatCompletions(t *testing.T) {
 		{name: "other_platform_untouched", account: kimiNative, body: lite, want: false},
 		{name: "oauth_untouched", account: oauthDeepseek, body: lite, want: false},
 		{name: "nil_account", account: nil, body: lite, want: false},
+		// 平台是 openai 但上游是 DeepSeek：同样命中。
+		{name: "openai_platform_deepseek_upstream_lite", account: openaiDeepseekBase, body: lite, want: true},
+		{name: "openai_platform_deepseek_upstream_with_path", account: openaiDeepseekBasePath, body: lite, want: true},
+		{name: "openai_platform_deepseek_upstream_classic", account: openaiDeepseekBase, body: classic, want: false},
+		{name: "openai_platform_other_upstream", account: openaiOtherBase, body: lite, want: false},
+		{name: "openai_platform_no_base_url", account: openaiNoBase, body: lite, want: false},
+		{name: "lookalike_host_not_matched", account: openaiLookalikeHost, body: lite, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -137,6 +171,13 @@ func TestShouldForwardOpenAIResponsesViaChatCompletions(t *testing.T) {
 		Type:        AccountTypeAPIKey,
 		Credentials: map[string]any{"api_protocol": APIProtocolAdaptive},
 	}
+	// 平台 openai + DeepSeek 上游：不需要账号级开关也能自动改道。
+	openaiDeepseekBase := &Account{
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Extra:       map[string]any{"openai_responses_supported": true},
+		Credentials: map[string]any{"base_url": "https://api.deepseek.com"},
+	}
 
 	lite := []byte(deepSeekResponsesLiteBody)
 	classic := []byte(deepSeekClassicToolsBody)
@@ -152,6 +193,8 @@ func TestShouldForwardOpenAIResponsesViaChatCompletions(t *testing.T) {
 		{name: "native_supported_stays", account: nativeAccount, body: lite, want: false},
 		{name: "deepseek_lite_falls_back", account: deepseekLite, body: lite, want: true},
 		{name: "deepseek_classic_stays", account: deepseekLite, body: classic, want: false},
+		{name: "openai_platform_deepseek_upstream_lite", account: openaiDeepseekBase, body: lite, want: true},
+		{name: "openai_platform_deepseek_upstream_classic", account: openaiDeepseekBase, body: classic, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
