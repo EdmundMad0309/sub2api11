@@ -199,6 +199,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		originalModel = reqModel
 	}
 
+	if isOpenAINativeCompactionV2(c) && shouldForwardDeepSeekResponsesCompactViaChatCompletions(account, body) {
+		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
+	}
 	if shouldForwardOpenAIResponsesViaChatCompletions(account, body) {
 		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
 	}
@@ -1398,6 +1401,20 @@ func shouldForwardDeepSeekResponsesLiteViaChatCompletions(account *Account, body
 		return false
 	}
 	return openAIRequestBodyHasAdditionalTools(body)
+}
+
+// shouldForwardDeepSeekResponsesCompactViaChatCompletions 报告 DeepSeek 上游的
+// remote compaction v2 请求是否应改走 chat 桥。DeepSeek /responses 不认识
+// compaction_trigger，会把它当普通回合，返回 reasoning+message 而非 compaction
+// item，Codex 判 fatal（got 0 items）。改走 chat 桥后在回程合成 compaction item。
+func shouldForwardDeepSeekResponsesCompactViaChatCompletions(account *Account, body []byte) bool {
+	if account == nil || account.Type != AccountTypeAPIKey {
+		return false
+	}
+	if !isDeepSeekResponsesUpstream(account) {
+		return false
+	}
+	return HasCompactionTriggerInInput(body)
 }
 
 // deepSeekAPIHost 是 DeepSeek 官方 API 主机名，Responses 与 Chat Completions 同址。
