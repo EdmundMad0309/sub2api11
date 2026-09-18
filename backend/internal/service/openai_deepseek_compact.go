@@ -75,6 +75,11 @@ func buildDeepSeekCompactResponse(resp *apicompat.ResponsesResponse, summary str
 		Type:   "compaction",
 		ID:     "cmp_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
 		Status: "completed",
+		// Codex only emits ResponseEvent::OutputItemDone for a compaction item
+		// when the wire object carries encrypted_content. DeepSeek has no
+		// encrypted reasoning channel, so retain the visible summary as the
+		// opaque compaction payload accepted by the client.
+		EncryptedContent: strings.TrimSpace(summary),
 		Summary: []apicompat.ResponsesSummary{{
 			Type: "summary_text",
 			Text: strings.TrimSpace(summary),

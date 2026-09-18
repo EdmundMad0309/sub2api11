@@ -56,6 +56,6 @@ func TestBuildDeepSeekCompactResponse(t *testing.T) {
 
 	raw, err := json.Marshal(out)
 	require.NoError(t, err)
-	require.False(t, gjson.GetBytes(raw, "output.0.encrypted_content").Exists(), "deepseek compact item must not carry encrypted_content")
+	require.NotEmpty(t, gjson.GetBytes(raw, "output.0.encrypted_content").String(), "deepseek compact item must carry encrypted_content")
 	require.Equal(t, "compaction", gjson.GetBytes(raw, "output.0.type").String())
 }

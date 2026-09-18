@@ -40,6 +40,10 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 			return nil, fmt.Errorf("build deepseek compact chat body: %w", err)
 		}
 		body = rewritten
+		logger.L().Info("openai responses chat fallback: deepseek compact request rewritten",
+			zap.Int64("account_id", account.ID),
+			zap.Int("rewritten_body_bytes", len(body)),
+		)
 	}
 
 	var responsesReq apicompat.ResponsesRequest
@@ -136,6 +140,13 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
+		if compact {
+			logger.L().Warn("openai responses chat fallback: deepseek compact upstream error",
+				zap.Int64("account_id", account.ID),
+				zap.Int("status", resp.StatusCode),
+				zap.String("message", upstreamMsg),
+			)
+		}
 		if foErr := s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
 		}
@@ -176,6 +187,10 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 	}
 	if compact {
 		summary := compactSummaryTextFromResponses(responsesResp.Output)
+		logger.L().Info("openai responses chat fallback: deepseek compact synthesizing",
+			zap.Int("upstream_output_items", len(responsesResp.Output)),
+			zap.Int("summary_len", len(summary)),
+		)
 		compactResp := buildDeepSeekCompactResponse(responsesResp, summary)
 		encoded, err := json.Marshal(compactResp)
 		if err != nil {

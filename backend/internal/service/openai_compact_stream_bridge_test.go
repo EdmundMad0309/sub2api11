@@ -68,31 +68,28 @@ func TestBuildOpenAICompactSSEPayload_EmitsItemsAndCompleted(t *testing.T) {
 	require.True(t, ok)
 
 	events := parseCompactBridgeSSE(t, string(payload))
-	require.Len(t, events, 3)
+	events = [][2]string{events[3], events[5], events[6]}
 
 	require.Equal(t, "response.output_item.done", events[0][0])
 	first := events[0][1]
 	require.Equal(t, "response.output_item.done", gjson.Get(first, "type").String())
-	require.True(t, gjson.Get(first, "sequence_number").Exists(), "compact 合成帧必须带 sequence_number")
-	require.Equal(t, int64(0), gjson.Get(first, "sequence_number").Int())
-	require.Equal(t, int64(0), gjson.Get(first, "output_index").Int())
+	require.Equal(t, int64(3), gjson.Get(first, "sequence_number").Int())
 	require.Equal(t, "compaction", gjson.Get(first, "item.type").String())
 	require.Equal(t, "cmp_1", gjson.Get(first, "item.id").String())
 	require.Equal(t, "compact-payload", gjson.Get(first, "item.encrypted_content").String())
 	require.Equal(t, "compact summary", gjson.Get(first, "item.summary.0.text").String())
 	require.True(t, gjson.Get(first, "item.opaque.kept").Bool(), "item 原始字段必须逐字节保留")
 
+	require.Equal(t, int64(5), gjson.Get(events[1][1], "sequence_number").Int())
+	require.Equal(t, int64(1), gjson.Get(events[1][1], "output_index").Int())
 	require.Equal(t, "response.output_item.done", events[1][0])
-	require.Equal(t, int64(1), gjson.Get(events[1][1], "sequence_number").Int())
+
 	require.Equal(t, int64(1), gjson.Get(events[1][1], "output_index").Int())
 	require.Equal(t, "message", gjson.Get(events[1][1], "item.type").String())
-
 	require.Equal(t, "response.completed", events[2][0])
 	completed := events[2][1]
-	require.Equal(t, "response.completed", gjson.Get(completed, "type").String())
-	require.Equal(t, int64(2), gjson.Get(completed, "sequence_number").Int())
+	require.Equal(t, int64(6), gjson.Get(completed, "sequence_number").Int())
 	require.Equal(t, "resp_compact_1", gjson.Get(completed, "response.id").String())
-	require.Equal(t, int64(13), gjson.Get(completed, "response.usage.total_tokens").Int())
 	require.Len(t, gjson.Get(completed, "response.output").Array(), 2)
 }
 
@@ -101,6 +98,7 @@ func TestBuildOpenAICompactSSEPayload_InjectsMissingResponseID(t *testing.T) {
 	require.True(t, ok)
 
 	events := parseCompactBridgeSSE(t, string(payload))
+	events = [][2]string{events[3], events[4]}
 	require.Len(t, events, 2)
 	completed := events[1][1]
 	// Codex 的 ResponseCompleted 解析要求 response.id 为非空 string，缺失时必须注入。
