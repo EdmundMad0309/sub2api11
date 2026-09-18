@@ -196,7 +196,7 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 		if err != nil {
 			return nil, fmt.Errorf("marshal deepseek compact response: %w", err)
 		}
-		payload, ok := buildOpenAICompactSSEPayload(encoded)
+		payload, ok := buildDeepSeekCompactSSEPayload(encoded)
 		if !ok {
 			return nil, fmt.Errorf("build deepseek compact SSE payload")
 		}
