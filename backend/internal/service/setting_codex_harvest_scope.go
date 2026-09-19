@@ -11,11 +11,17 @@ import (
 
 const SettingKeyOpenAICodexTicketHarvestScope = "openai_codex_ticket_harvest_scope"
 
+const (
+	CodexHarvestSchedulableOnly       = "schedulable_only"
+	CodexHarvestPrioritizeSchedulable = "prioritize_schedulable"
+)
+
 // CodexTicketHarvestScope affects background harvesting only, not request routing
 // or existing tickets. Selected with no groups intentionally harvests nothing.
 type CodexTicketHarvestScope struct {
-	Mode     string  `json:"mode"`
-	GroupIDs []int64 `json:"group_ids"`
+	Mode          string  `json:"mode"`
+	GroupIDs      []int64 `json:"group_ids"`
+	AccountPolicy string  `json:"account_policy"`
 }
 
 func NormalizeCodexTicketHarvestScope(scope CodexTicketHarvestScope) (CodexTicketHarvestScope, error) {
@@ -24,6 +30,12 @@ func NormalizeCodexTicketHarvestScope(scope CodexTicketHarvestScope) (CodexTicke
 	}
 	if scope.Mode != "all" && scope.Mode != "selected" {
 		return scope, fmt.Errorf("harvest scope mode must be all or selected")
+	}
+	if scope.AccountPolicy == "" {
+		scope.AccountPolicy = CodexHarvestSchedulableOnly
+	}
+	if scope.AccountPolicy != CodexHarvestSchedulableOnly && scope.AccountPolicy != CodexHarvestPrioritizeSchedulable {
+		return scope, fmt.Errorf("harvest account policy must be schedulable_only or prioritize_schedulable")
 	}
 	if len(scope.GroupIDs) > 1000 {
 		return scope, fmt.Errorf("at most 1000 harvest groups are allowed")
@@ -75,12 +87,37 @@ func (scope CodexTicketHarvestScope) includes(account *Account) bool {
 	if scope.Mode == "all" {
 		return true
 	}
+	if len(account.Groups) > 0 {
+		for _, group := range account.Groups {
+			if group != nil && group.IsActive() && slices.Contains(scope.GroupIDs, group.ID) {
+				return true
+			}
+		}
+		return false
+	}
+	// Retain compatibility with legacy/test snapshots that only carry IDs.
 	for _, id := range account.GroupIDs {
 		if slices.Contains(scope.GroupIDs, id) {
 			return true
 		}
 	}
 	return false
+}
+
+// allowsAccount applies the full operational scheduling state. The optional
+// compatibility policy may defer a manually disabled account, but never probes
+// accounts that are rate-limited, overloaded, temporarily paused, expired, or
+// quota exhausted.
+func (scope CodexTicketHarvestScope) allowsAccount(account *Account) bool {
+	if account == nil {
+		return false
+	}
+	candidate := *account
+	candidate.Schedulable = true
+	if !candidate.IsSchedulable() {
+		return false
+	}
+	return scope.AccountPolicy == CodexHarvestPrioritizeSchedulable || account.Schedulable
 }
 
 // A shared account is harvested once, at its best priority among selected
@@ -90,6 +127,9 @@ func (scope CodexTicketHarvestScope) priority(account *Account) int {
 	best, found := account.Priority, false
 	for _, membership := range account.AccountGroups {
 		if scope.Mode == "selected" && !slices.Contains(scope.GroupIDs, membership.GroupID) {
+			continue
+		}
+		if membership.Group != nil && !membership.Group.IsActive() {
 			continue
 		}
 		if !found || membership.Priority < best {

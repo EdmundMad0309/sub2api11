@@ -498,6 +498,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.OpenAICodexTicketStrictResponse != after.OpenAICodexTicketStrictResponse {
 		changed = append(changed, "openai_codex_ticket_strict_response")
 	}
+	if before.OpenAICodexTicketFailClosed != after.OpenAICodexTicketFailClosed {
+		changed = append(changed, "openai_codex_ticket_fail_closed")
+	}
 	if !reflect.DeepEqual(before.OpenAICodexTicketModels, after.OpenAICodexTicketModels) {
 		changed = append(changed, "openai_codex_ticket_models")
 	}
