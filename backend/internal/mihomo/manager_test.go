@@ -145,6 +145,18 @@ func TestOfficialKernelInstallation(t *testing.T) {
 	restored := New(m.dir)
 	defer restored.Close()
 	require.Eventually(t, func() bool { return restored.Status().Running }, 10*time.Second, 100*time.Millisecond)
+	restored.Close()
+	legacyDir := t.TempDir()
+	legacyConfig, _ := json.Marshal(map[string]any{"proxy-providers": map[string]any{"airport": map[string]string{"url": server.URL}}})
+	legacyCache, _ := json.Marshal(map[string]any{"proxies": old.Nodes})
+	require.NoError(t, os.WriteFile(filepath.Join(legacyDir, "config.yaml"), legacyConfig, 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(legacyDir, "airport.yaml"), legacyCache, 0600))
+	migratedDir := t.TempDir()
+	require.NoError(t, PrepareLegacy(ctx, migratedDir, filepath.Join(legacyDir, "config.yaml"), filepath.Join(legacyDir, "airport.yaml"), filepath.Join(m.dir, "mihomo")))
+	migrated := New(filepath.Join(migratedDir, "mihomo-codex"))
+	defer migrated.Close()
+	require.Eventually(t, func() bool { return migrated.Status().Running }, 10*time.Second, 100*time.Millisecond)
+	require.NoError(t, CheckManaged(ctx, migratedDir))
 }
 
 func TestDisabledNodesAreExcludedFromRotation(t *testing.T) {

@@ -117,9 +117,12 @@ func (m *Manager) Status() Status {
 
 // Submit serializes long-running work and never returns subprocess output or URLs.
 func (m *Manager) Submit(action string, urls []string, appendURLs bool) error {
-	op, _, _ := strings.Cut(action, "/")
+	op, node, hasNode := strings.Cut(action, "/")
 	if op != "install" && op != "apply" && op != "start" && op != "disable" && op != "recover" && op != "probe" {
 		return errors.New("unknown operation")
+	}
+	if (op == "disable" || op == "recover" || op == "probe") != hasNode || (hasNode && (node == "" || strings.Contains(node, "/"))) {
+		return errors.New("invalid operation target")
 	}
 	clean, err := normalizeURLs(urls)
 	if err != nil {
@@ -137,7 +140,12 @@ func (m *Manager) Submit(action string, urls []string, appendURLs bool) error {
 	next := m.saved
 	if action == "apply" && len(clean) > 0 {
 		if appendURLs {
-			next.URLs, _ = normalizeURLs(append(append([]string{}, next.URLs...), clean...))
+			merged, mergeErr := normalizeURLs(append(append([]string{}, next.URLs...), clean...))
+			if mergeErr != nil {
+				m.mu.Unlock()
+				return mergeErr
+			}
+			next.URLs = merged
 		} else {
 			next.URLs = clean
 		}

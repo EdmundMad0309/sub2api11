@@ -75,3 +75,21 @@ func TestSettingsCodexTicketRestoresStaticProxyAfterKernel(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.Equal(t, original, repo.values[key])
 }
+
+func TestSettingsCodexTicketStrategyRoundTrip(t *testing.T) {
+	key := service.SettingKeyOpenAICodexTicketStrategy
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{})
+	require.Equal(t, "standby", h.settingService.GetCodexTicketStrategy(context.Background()))
+	for _, strategy := range []string{"fixed", "standby"} {
+		rec := doUpdateSettings(t, h, map[string]any{key: strategy}, nil)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		require.Equal(t, strategy, repo.values[key])
+		require.Equal(t, strategy, h.settingService.GetCodexTicketStrategy(context.Background()))
+		rec = doUpdateSettings(t, h, map[string]any{"site_name": "kept"}, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Equal(t, strategy, repo.values[key])
+	}
+	rec := doUpdateSettings(t, h, map[string]any{key: "unknown"}, nil)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, "standby", repo.values[key])
+}

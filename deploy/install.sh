@@ -683,6 +683,15 @@ download_and_extract() {
 configure_mihomo_codex() {
     local installer="$INSTALL_DIR/install-mihomo-codex.sh"
 
+    if [ -f "$INSTALL_DIR/migrate-mihomo-managed.sh" ] && [ -f /etc/mihomo-codex/config.yaml ]; then
+        INSTALL_DIR="$INSTALL_DIR" bash "$INSTALL_DIR/migrate-mihomo-managed.sh"
+        # The managed kernel now owns this configuration. Do not start another
+        # systemd instance on the same ports during an application upgrade.
+        if [ -f "${DATA_DIR:-$INSTALL_DIR}/mihomo-codex/settings.json" ]; then
+            return 0
+        fi
+    fi
+
     if [ -z "$MIHOMO_CODEX_SUBSCRIPTION_URL" ]; then
         if systemctl is-active --quiet mihomo-codex.service 2>/dev/null; then
             print_info "Mihomo Codex sidecar is already active on 127.0.0.1:${MIHOMO_CODEX_PORT}"
@@ -703,6 +712,9 @@ configure_mihomo_codex() {
         MIHOMO_CODEX_PORT="$MIHOMO_CODEX_PORT" \
         MIHOMO_CODEX_SECRET="$MIHOMO_CODEX_SECRET" \
         bash "$installer"
+    if [ -f "$INSTALL_DIR/migrate-mihomo-managed.sh" ]; then
+        INSTALL_DIR="$INSTALL_DIR" bash "$INSTALL_DIR/migrate-mihomo-managed.sh"
+    fi
 }
 
 # Create system user
@@ -1149,10 +1161,10 @@ main() {
                     configure_server
                     LATEST_VERSION=$(validate_version "$target_version")
                     download_and_extract
-                    configure_mihomo_codex
                     create_user
                     setup_directories
                     install_service
+                    configure_mihomo_codex
                     prepare_for_setup
                     get_public_ip
                     start_service
@@ -1164,10 +1176,10 @@ main() {
                 configure_server
                 get_latest_version
                 download_and_extract
-                configure_mihomo_codex
                 create_user
                 setup_directories
                 install_service
+                configure_mihomo_codex
                 prepare_for_setup
                 get_public_ip
                 start_service
@@ -1245,10 +1257,10 @@ main() {
             configure_server
             LATEST_VERSION=$(validate_version "$target_version")
             download_and_extract
-            configure_mihomo_codex
             create_user
             setup_directories
             install_service
+            configure_mihomo_codex
             prepare_for_setup
             get_public_ip
             start_service
@@ -1260,10 +1272,10 @@ main() {
         configure_server
         get_latest_version
         download_and_extract
-        configure_mihomo_codex
         create_user
         setup_directories
         install_service
+        configure_mihomo_codex
         prepare_for_setup
         get_public_ip
         start_service
