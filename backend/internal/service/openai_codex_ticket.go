@@ -716,7 +716,12 @@ func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
 	})
 	// Remove obsolete buckets when membership/priorities change.
 	s.openaiCodexTicketCursors.Range(func(key, _ any) bool {
-		if _, exists := tiers[key.(codexHarvestTier)]; !exists {
+		tier, ok := key.(codexHarvestTier)
+		if !ok {
+			s.openaiCodexTicketCursors.Delete(key)
+			return true
+		}
+		if _, exists := tiers[tier]; !exists {
 			s.openaiCodexTicketCursors.Delete(key)
 		}
 		return true
@@ -736,7 +741,11 @@ func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
 			continue
 		}
 		stored, _ := s.openaiCodexTicketCursors.LoadOrStore(tier, &atomic.Uint64{})
-		cursor := stored.(*atomic.Uint64)
+		cursor, ok := stored.(*atomic.Uint64)
+		if !ok || cursor == nil {
+			cursor = &atomic.Uint64{}
+			s.openaiCodexTicketCursors.Store(tier, cursor)
+		}
 		start := int(cursor.Load() % uint64(total))
 		var wg sync.WaitGroup
 		for offset := 0; offset < total && probed < cfg.MaxProbesPerRound && ctx.Err() == nil; offset++ {
