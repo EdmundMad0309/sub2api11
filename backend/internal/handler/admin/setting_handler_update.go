@@ -259,6 +259,7 @@ type UpdateSettingsRequest struct {
 	OpenAICodexVersionAutoSyncEnabled      *bool     `json:"openai_codex_version_auto_sync_enabled"`
 	OpenAICodexTicketEnabled               *bool     `json:"openai_codex_ticket_enabled"`
 	OpenAICodexTicketHarvestProxyURL       string    `json:"openai_codex_ticket_harvest_proxy_url"`
+	OpenAICodexTicketUseSavedStaticProxy   bool      `json:"openai_codex_ticket_use_saved_static_proxy"`
 	OpenAICodexTicketModels                *[]string `json:"openai_codex_ticket_models"`
 
 	// codex_cli_only 加固（global-only）
@@ -1779,10 +1780,19 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}(),
 		OpenAICodexTicketHarvestProxyURL: func() string {
 			next := strings.TrimSpace(req.OpenAICodexTicketHarvestProxyURL)
+			if req.OpenAICodexTicketUseSavedStaticProxy && service.IsMaskedProxyURL(next) && previousSettings.OpenAICodexTicketStaticProxyURL != "" {
+				return previousSettings.OpenAICodexTicketStaticProxyURL
+			}
 			if service.IsMaskedProxyURL(next) {
 				return previousSettings.OpenAICodexTicketHarvestProxyURL
 			}
 			return next
+		}(),
+		OpenAICodexTicketStaticProxyURL: func() string {
+			if old := previousSettings.OpenAICodexTicketHarvestProxyURL; old != "" && old != "http://127.0.0.1:3101" {
+				return old
+			}
+			return previousSettings.OpenAICodexTicketStaticProxyURL
 		}(),
 		OpenAICodexTicketModels: func() []string {
 			if req.OpenAICodexTicketModels != nil {
@@ -2334,6 +2344,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAICodexVersionAutoSyncEnabled:                      updatedSettings.OpenAICodexVersionAutoSyncEnabled,
 		OpenAICodexTicketEnabled:                               updatedSettings.OpenAICodexTicketEnabled,
 		OpenAICodexTicketHarvestProxyURL:                       service.MaskProxyURL(updatedSettings.OpenAICodexTicketHarvestProxyURL),
+		OpenAICodexTicketStaticProxyURL:                        service.MaskProxyURL(updatedSettings.OpenAICodexTicketStaticProxyURL),
 		OpenAICodexTicketHarvestProxyConfigured:                strings.TrimSpace(updatedSettings.OpenAICodexTicketHarvestProxyURL) != "",
 		OpenAICodexTicketModels:                                updatedSettings.OpenAICodexTicketModels,
 		MinCodexVersion:                                        updatedSettings.MinCodexVersion,

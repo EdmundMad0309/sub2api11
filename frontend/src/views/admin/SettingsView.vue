@@ -4593,9 +4593,7 @@
                       <span>{{ t("admin.settings.gatewayForwarding.codexTicketProxyMihomoEndpoint") }}</span>
                       <code class="rounded bg-white/70 px-1.5 py-0.5 font-mono text-xs dark:bg-dark-800/70">{{ CODEX_TICKET_MIHOMO_PROXY_URL }}</code>
                     </div>
-                    <p class="mt-1 text-xs text-primary-700/80 dark:text-primary-300/80">
-                      {{ t("admin.settings.gatewayForwarding.codexTicketProxyMihomoHint") }}
-                    </p>
+                    <MihomoSettings @ready="form.openai_codex_ticket_harvest_proxy_url = $event" />
                   </div>
                   <input
                     v-else
@@ -8986,6 +8984,7 @@ import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
+import MihomoSettings from "@/views/admin/settings/MihomoSettings.vue";
 import { useClipboard } from "@/composables/useClipboard";
 import {
   useStepUp,
@@ -10956,7 +10955,7 @@ function syncCodexTicketProxyMode(): void {
   const current = form.openai_codex_ticket_harvest_proxy_url;
   const isMihomo = isCodexTicketMihomoProxyURL(current);
   codexTicketProxyMode.value = isMihomo ? "mihomo" : "static";
-  codexTicketStaticProxyDraft.value = isMihomo ? "" : current;
+  codexTicketStaticProxyDraft.value = isMihomo ? form.openai_codex_ticket_static_proxy_url || "" : current;
 }
 
 function selectCodexTicketProxyMode(mode: CodexTicketProxyMode): void {
@@ -10966,10 +10965,7 @@ function selectCodexTicketProxyMode(mode: CodexTicketProxyMode): void {
       form.openai_codex_ticket_harvest_proxy_url;
   }
   codexTicketProxyMode.value = mode;
-  if (mode === "mihomo") {
-    form.openai_codex_ticket_harvest_proxy_url =
-      CODEX_TICKET_MIHOMO_PROXY_URL;
-  } else if (wasMihomo) {
+  if (mode === "static" && wasMihomo) {
     form.openai_codex_ticket_harvest_proxy_url =
       codexTicketStaticProxyDraft.value;
   }
@@ -11608,6 +11604,7 @@ async function saveSettings() {
       openai_codex_ticket_enabled: form.openai_codex_ticket_enabled,
       openai_codex_ticket_harvest_proxy_url:
         form.openai_codex_ticket_harvest_proxy_url?.trim() || "",
+      openai_codex_ticket_use_saved_static_proxy: codexTicketProxyMode.value === 'static',
       openai_codex_ticket_models: [...form.openai_codex_ticket_models],
       min_codex_version: form.min_codex_version?.trim() || "",
       max_codex_version: form.max_codex_version?.trim() || "",

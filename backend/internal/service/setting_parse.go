@@ -898,6 +898,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		result.OpenAICodexTicketEnabled = s.cfg.Gateway.OpenAICodexTicket.Enabled
 	}
 	result.OpenAICodexTicketHarvestProxyURL = strings.TrimSpace(settings[SettingKeyOpenAICodexTicketHarvestProxyURL])
+	result.OpenAICodexTicketStaticProxyURL = strings.TrimSpace(settings[SettingKeyOpenAICodexTicketStaticProxyURL])
 	if raw, ok := settings[SettingKeyOpenAICodexTicketModels]; ok && strings.TrimSpace(raw) != "" {
 		var models []string
 		if err := json.Unmarshal([]byte(raw), &models); err == nil {

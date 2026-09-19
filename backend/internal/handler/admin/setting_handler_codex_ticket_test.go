@@ -62,3 +62,16 @@ func TestSettingsCodexTicketModelsPersistOmissionAndEmpty(t *testing.T) {
 		require.Equal(t, saved, repo.values[key])
 	}
 }
+
+func TestSettingsCodexTicketRestoresStaticProxyAfterKernel(t *testing.T) {
+	key := service.SettingKeyOpenAICodexTicketHarvestProxyURL
+	original := "http://user:secret@residential.example:8080"
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{key: original})
+	rec := doUpdateSettings(t, h, map[string]any{key: "http://127.0.0.1:3101"}, nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, original, repo.values[service.SettingKeyOpenAICodexTicketStaticProxyURL])
+	require.NotContains(t, rec.Body.String(), ":secret@")
+	rec = doUpdateSettings(t, h, map[string]any{key: service.MaskProxyURL(original), "openai_codex_ticket_use_saved_static_proxy": true}, nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, original, repo.values[key])
+}

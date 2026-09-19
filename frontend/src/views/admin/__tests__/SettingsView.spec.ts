@@ -770,7 +770,7 @@ describe("admin SettingsView payment visible method controls", () => {
     wrapper.unmount();
   });
 
-  it("selects the Mihomo kernel preset without manual proxy entry", async () => {
+  it("does not activate an unverified Mihomo endpoint just by selecting the mode", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,
       openai_codex_ticket_harvest_proxy_url: "",
@@ -786,7 +786,7 @@ describe("admin SettingsView payment visible method controls", () => {
     await flushPromises();
 
     expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_proxy_url)
-      .toBe("http://127.0.0.1:3101");
+      .toBe("");
     wrapper.unmount();
   });
 

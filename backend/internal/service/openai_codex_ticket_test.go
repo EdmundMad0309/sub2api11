@@ -215,12 +215,12 @@ func TestHarvestOpenAICodexTicket_StopsAt292AndUsesHarvestProxy(t *testing.T) {
 			{
 				StatusCode: http.StatusOK,
 				Header:     header312,
-				Body:       io.NopCloser(strings.NewReader("data: {}\n\n")),
+				Body:       io.NopCloser(strings.NewReader(`{"status":"completed"}`)),
 			},
 			{
 				StatusCode: http.StatusOK,
 				Header:     header292,
-				Body:       io.NopCloser(strings.NewReader("data: {}\n\n")),
+				Body:       io.NopCloser(strings.NewReader(`{"status":"completed"}`)),
 			},
 		},
 	}
@@ -267,7 +267,7 @@ func TestHarvestOpenAICodexTicket_HTTP503DoesNotAbortHunt(t *testing.T) {
 	responses = append(responses, &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     header292,
-		Body:       io.NopCloser(strings.NewReader("data: {}\n\n")),
+		Body:       io.NopCloser(strings.NewReader(`{"status":"completed"}`)),
 	})
 	upstream := &httpUpstreamRecorder{responses: responses}
 	svc := ticketTestService(t, config.OpenAICodexTicketConfig{
@@ -376,7 +376,7 @@ func (u *codexTicketConcurrentUpstream) Do(req *http.Request, _ string, _ int64,
 	}
 	h := http.Header{}
 	h.Set(openAICodexTurnStateHeader, fakeCodexTicketState(292))
-	return &http.Response{StatusCode: 200, Header: h, Body: io.NopCloser(strings.NewReader("data: {}\n\n"))}, nil
+	return &http.Response{StatusCode: 200, Header: h, Body: io.NopCloser(strings.NewReader(`{"status":"completed"}`))}, nil
 }
 func TestRefreshOpenAICodexTickets_ConcurrentModelsPreserveAccountSnapshot(t *testing.T) {
 	account := ticketTestAccount(41)
