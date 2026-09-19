@@ -182,3 +182,24 @@ func TestSettingsCodexHarvestScopeValidatesGroupsAndPreservesDeletedSelection(t 
 	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &envelope))
 	require.Equal(t, scope, envelope.Data.Scope)
 }
+
+func TestSettingsCodexTicketFailClosedDefaultsOffAndPersists(t *testing.T) {
+	key := service.SettingKeyOpenAICodexTicketFailClosed
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{})
+	require.False(t, h.settingService.GetOpenAICodexTicketFailClosed(context.Background()))
+
+	rec := doUpdateSettings(t, h, map[string]any{key: true}, nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, "true", repo.values[key])
+	require.True(t, h.settingService.GetOpenAICodexTicketFailClosed(context.Background()))
+	require.Contains(t, rec.Body.String(), `"openai_codex_ticket_fail_closed":true`)
+
+	rec = doUpdateSettings(t, h, map[string]any{"site_name": "preserve-ticket-policy"}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "true", repo.values[key])
+
+	rec = doUpdateSettings(t, h, map[string]any{key: false}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "false", repo.values[key])
+	require.False(t, h.settingService.GetOpenAICodexTicketFailClosed(context.Background()))
+}

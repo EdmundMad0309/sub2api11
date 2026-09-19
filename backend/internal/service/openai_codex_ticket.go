@@ -171,6 +171,7 @@ func (s *OpenAIGatewayService) openAICodexTicketConfig() config.OpenAICodexTicke
 	}
 	if s != nil && s.settingService != nil {
 		cfg.Models = s.settingService.GetOpenAICodexTicketModels(context.Background(), cfg.Models)
+		cfg.FailClosed = s.settingService.GetOpenAICodexTicketFailClosed(context.Background())
 	}
 	return cfg
 }
@@ -693,7 +694,7 @@ func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
 	tiers := map[codexHarvestTier][]Account{}
 	seen := make(map[int64]bool, len(accounts))
 	for _, account := range accounts {
-		if seen[account.ID] || !scope.includes(&account) || account.Status != StatusActive || account.IsRateLimited() || !isOpenAICodexTicketAccount(&account) {
+		if seen[account.ID] || !scope.includes(&account) || !scope.allowsAccount(&account) || !isOpenAICodexTicketAccount(&account) {
 			continue
 		}
 		seen[account.ID] = true
