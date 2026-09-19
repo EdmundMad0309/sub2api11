@@ -605,6 +605,7 @@ OAuth / Setup Token 图片请求使用 Responses 主控模型调用 `image_gener
 简易模式适合个人开发者或内部团队快速使用，不依赖完整 SaaS 功能。
 
 - 启用方式：设置环境变量 `RUN_MODE=simple`
+- 默认每次启动创建缺失的默认分组；设置 `SIMPLE_MODE_AUTO_CREATE_DEFAULT_GROUPS=false`（或 YAML `simple_mode.auto_create_default_groups: false`）可关闭。关闭不删除已有分组，也不改变运行时自动绑定或管理员并发配置。
 - 功能差异：隐藏 SaaS 相关功能，跳过计费流程
 - 安全注意事项：生产环境需同时设置 `SIMPLE_MODE_CONFIRM=true` 才允许启动
 
