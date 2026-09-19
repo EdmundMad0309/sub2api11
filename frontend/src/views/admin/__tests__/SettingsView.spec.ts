@@ -751,6 +751,24 @@ describe("admin SettingsView payment visible method controls", () => {
     wrapper.unmount();
   });
 
+  it("loads and changes the ticket refresh strategy", async () => {
+    getSettings.mockResolvedValueOnce({...baseSettingsResponse,openai_codex_ticket_strategy:'standby'});
+    const wrapper=mountView();await flushPromises();
+    await wrapper.get('#codex-ticket-strategy').setValue('fixed');
+    await wrapper.find('form').trigger('submit.prevent');await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_strategy).toBe('fixed');
+    wrapper.unmount();
+  });
+
+  it("keeps strict ticket response rejection opt-in", async () => {
+    const wrapper=mountView();await flushPromises();
+    expect(wrapper.get<HTMLInputElement>('#codex-ticket-strict').element.checked).toBe(false);
+    await wrapper.get('#codex-ticket-strict').setValue(true);
+    await wrapper.find('form').trigger('submit.prevent');await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_strict_response).toBe(true);
+    wrapper.unmount();
+  });
+
   it("loads the masked Codex harvest proxy and submits a replacement URL", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,
@@ -770,7 +788,7 @@ describe("admin SettingsView payment visible method controls", () => {
     wrapper.unmount();
   });
 
-  it("selects the Mihomo kernel preset without manual proxy entry", async () => {
+  it("does not activate an unverified Mihomo endpoint just by selecting the mode", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,
       openai_codex_ticket_harvest_proxy_url: "",
@@ -786,7 +804,7 @@ describe("admin SettingsView payment visible method controls", () => {
     await flushPromises();
 
     expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_proxy_url)
-      .toBe("http://127.0.0.1:3101");
+      .toBe("");
     wrapper.unmount();
   });
 

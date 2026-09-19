@@ -28,6 +28,8 @@ type CustomEndpoint struct {
 
 // SystemSettings represents the admin settings API response payload.
 type SystemSettings struct {
+	OpenAICodexTicketStrictResponse     bool                     `json:"openai_codex_ticket_strict_response,omitempty"`
+	OpenAICodexTicketStrategy           string                   `json:"openai_codex_ticket_strategy"`
 	RegistrationEnabled                 bool                     `json:"registration_enabled"`
 	EmailVerifyEnabled                  bool                     `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist    []string                 `json:"registration_email_suffix_whitelist"`
@@ -219,6 +221,7 @@ type SystemSettings struct {
 	OpenAICodexVersionAutoSyncEnabled       bool     `json:"openai_codex_version_auto_sync_enabled"`
 	OpenAICodexTicketEnabled                bool     `json:"openai_codex_ticket_enabled"`
 	OpenAICodexTicketHarvestProxyURL        string   `json:"openai_codex_ticket_harvest_proxy_url"`
+	OpenAICodexTicketStaticProxyURL         string   `json:"openai_codex_ticket_static_proxy_url,omitempty"`
 	OpenAICodexTicketHarvestProxyConfigured bool     `json:"openai_codex_ticket_harvest_proxy_configured"`
 	OpenAICodexTicketModels                 []string `json:"openai_codex_ticket_models"`
 

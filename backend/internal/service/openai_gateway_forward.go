@@ -1074,6 +1074,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		upstreamStart := time.Now()
 		resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
+		if errors.Is(err, ErrCodexTicketResponseRejected) {
+			if headerGuard != nil {
+				headerGuard.close()
+			}
+			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+		}
 		if headerGuard != nil && headerGuard.stopHeaderWait() {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()

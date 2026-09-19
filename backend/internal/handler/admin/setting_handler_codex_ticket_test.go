@@ -62,3 +62,48 @@ func TestSettingsCodexTicketModelsPersistOmissionAndEmpty(t *testing.T) {
 		require.Equal(t, saved, repo.values[key])
 	}
 }
+
+func TestSettingsCodexTicketRestoresStaticProxyAfterKernel(t *testing.T) {
+	key := service.SettingKeyOpenAICodexTicketHarvestProxyURL
+	original := "http://user:secret@residential.example:8080"
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{key: original})
+	rec := doUpdateSettings(t, h, map[string]any{key: "http://127.0.0.1:3101"}, nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, original, repo.values[service.SettingKeyOpenAICodexTicketStaticProxyURL])
+	require.NotContains(t, rec.Body.String(), ":secret@")
+	rec = doUpdateSettings(t, h, map[string]any{key: service.MaskProxyURL(original), "openai_codex_ticket_use_saved_static_proxy": true}, nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, original, repo.values[key])
+}
+
+func TestSettingsCodexTicketStrategyRoundTrip(t *testing.T) {
+	key := service.SettingKeyOpenAICodexTicketStrategy
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{})
+	require.Equal(t, "standby", h.settingService.GetCodexTicketStrategy(context.Background()))
+	for _, strategy := range []string{"fixed", "standby"} {
+		rec := doUpdateSettings(t, h, map[string]any{key: strategy}, nil)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		require.Equal(t, strategy, repo.values[key])
+		require.Equal(t, strategy, h.settingService.GetCodexTicketStrategy(context.Background()))
+		rec = doUpdateSettings(t, h, map[string]any{"site_name": "kept"}, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Equal(t, strategy, repo.values[key])
+	}
+	rec := doUpdateSettings(t, h, map[string]any{key: "unknown"}, nil)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, "standby", repo.values[key])
+}
+
+func TestSettingsCodexTicketStrictPreservesOmittedValue(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{})
+	key := service.SettingKeyOpenAICodexTicketStrict
+	require.False(t, h.settingService.CodexTicketStrictResponse(context.Background()))
+	rec := doUpdateSettings(t, h, map[string]any{key: true}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doUpdateSettings(t, h, map[string]any{"site_name": "unchanged-policy"}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "true", repo.values[key])
+	rec = doUpdateSettings(t, h, map[string]any{key: false}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "false", repo.values[key])
+}
