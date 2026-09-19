@@ -4523,6 +4523,22 @@
                   <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     {{ t("admin.settings.gatewayForwarding.codexTicketModelsDesc") }}
                   </p>
+                  <fieldset class="mt-3 rounded-lg border border-gray-200 p-3 dark:border-dark-600">
+                    <legend class="px-1 text-sm font-semibold">{{ localText('自动打票范围', 'Automatic harvest scope') }}</legend>
+                    <select id="codex-ticket-harvest-scope" v-model="form.openai_codex_ticket_harvest_scope.mode" class="input">
+                      <option value="all">{{ localText('全部 OpenAI 账号（兼容原设置）', 'All OpenAI accounts (legacy default)') }}</option>
+                      <option value="selected">{{ localText('仅指定分组', 'Selected groups only') }}</option>
+                    </select>
+                    <div v-if="form.openai_codex_ticket_harvest_scope.mode === 'selected'" class="mt-3 space-y-2">
+                      <p v-if="codexHarvestGroupsLoadFailed" class="text-sm text-amber-600">{{ localText('分组加载失败，已选范围保留，请刷新后重试。', 'Could not load groups. Saved selection is preserved; refresh to retry.') }}</p>
+                      <label v-for="group in codexHarvestGroupChoices" :key="group.id" class="flex items-center gap-2 text-sm">
+                        <input :id="'codex-ticket-group-' + group.id" v-model="form.openai_codex_ticket_harvest_scope.group_ids" type="checkbox" :value="group.id" />
+                        <span>{{ group.name }} (#{{ group.id }})</span>
+                      </label>
+                      <p v-if="form.openai_codex_ticket_harvest_scope.group_ids.length === 0" class="text-sm text-amber-600">{{ localText('未选择分组：不会自动打票，不会退回全部账号。', 'No groups selected: automatic harvesting is paused, not broadened to all accounts.') }}</p>
+                    </div>
+                    <p class="mt-2 text-xs text-gray-500">{{ localText('仅控制后台采集；不改变业务分组、已有票据或无票拦截规则。多组账号只采集一次。先参与调度，再按分组优先级（数值小优先）；跨组取选中组中的最高优先级，再比较账号优先级，同级轮询。未参与调度的账号整体排后；前排持续缺票时后排可能等待。保存后下轮生效，已发出的请求不会取消。', 'Controls background harvesting only; routing, existing tickets and no-ticket blocking remain unchanged. Accounts in multiple groups are deduplicated. Schedulable accounts run first, then group priority (lower first; best selected membership wins), then account priority, with round-robin within ties. Non-schedulable accounts run last and may wait. Changes apply next round, without cancelling in-flight requests.') }}</p>
+                  </fieldset>
                   <label class="mt-3 block text-sm" for="codex-ticket-strategy">{{ localText('票据刷新策略', 'Ticket refresh strategy') }}</label>
                   <select id="codex-ticket-strategy" v-model="form.openai_codex_ticket_strategy" class="input mt-2">
                     <option value="standby">{{ localText('提前准备备用（默认）', 'Prepare standby (default)') }}</option>
@@ -9136,6 +9152,17 @@ const adminApiKeyMasked = ref("");
 const adminApiKeyOperating = ref(false);
 const newAdminApiKey = ref("");
 const subscriptionGroups = ref<AdminGroup[]>([]);
+const codexHarvestGroups = ref<AdminGroup[]>([]);
+const codexHarvestGroupsLoadFailed = ref(false);
+const codexHarvestGroupChoices = computed(() => {
+  const known = new Set(codexHarvestGroups.value.map(group => group.id));
+  return [
+    ...codexHarvestGroups.value.map(group => ({ id: group.id, name: group.name })),
+    ...form.openai_codex_ticket_harvest_scope.group_ids.filter(id => !known.has(id)).map(id => ({
+      id, name: localText('不可用或已删除的分组', 'Unavailable or deleted group') + ' #' + id,
+    })),
+  ];
+});
 
 // Upstream billing probe state
 const upstreamBillingProbeLoading = ref(true);
@@ -9660,6 +9687,7 @@ type SettingsForm = Omit<
   | "wechat_connect_mp_enabled"
   | "wechat_connect_mobile_enabled"
 > & {
+  openai_codex_ticket_harvest_scope: { mode: "all" | "selected"; group_ids: number[] };
   /** Form always binds a concrete boolean (SystemSettings marks this optional). */
   channel_monitor_hide_throughput: boolean;
   channel_monitor_show_quota: boolean;
@@ -9961,6 +9989,7 @@ const form = reactive<SettingsForm>({
   openai_codex_version_auto_sync_enabled: true,
   openai_codex_ticket_enabled: false,
   openai_codex_ticket_strategy: 'standby',
+  openai_codex_ticket_harvest_scope: { mode: 'all' as 'all' | 'selected', group_ids: [] as number[] },
   openai_codex_ticket_strict_response: false,
   openai_codex_ticket_harvest_proxy_url: "",
   openai_codex_ticket_harvest_proxy_configured: false,
@@ -11162,12 +11191,16 @@ async function loadSettings() {
 async function loadSubscriptionGroups() {
   try {
     const groups = await adminAPI.groups.getAll();
+    codexHarvestGroups.value = groups.filter(group => group.platform === 'openai');
+    codexHarvestGroupsLoadFailed.value = false;
     subscriptionGroups.value = groups.filter(
       (group) =>
         group.subscription_type === "subscription" && group.status === "active",
     );
   } catch (_error: unknown) {
     subscriptionGroups.value = [];
+    codexHarvestGroups.value = [];
+    codexHarvestGroupsLoadFailed.value = true;
   }
 }
 
@@ -11613,6 +11646,10 @@ async function saveSettings() {
         form.openai_codex_version_auto_sync_enabled,
       openai_codex_ticket_enabled: form.openai_codex_ticket_enabled,
       openai_codex_ticket_strategy: form.openai_codex_ticket_strategy || 'standby',
+      openai_codex_ticket_harvest_scope: {
+        mode: form.openai_codex_ticket_harvest_scope.mode,
+        group_ids: [...form.openai_codex_ticket_harvest_scope.group_ids],
+      },
       openai_codex_ticket_strict_response: form.openai_codex_ticket_strict_response || false,
       openai_codex_ticket_harvest_proxy_url:
         form.openai_codex_ticket_harvest_proxy_url?.trim() || "",

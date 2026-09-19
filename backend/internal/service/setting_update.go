@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -493,6 +494,28 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	if value := settings.OpenAICodexTicketStrategy; value != "" && value != "fixed" && value != "standby" {
 		return nil, infraerrors.BadRequest("INVALID_TICKET_STRATEGY", "strategy must be fixed or standby")
 	}
+	scope, scopeErr := NormalizeCodexTicketHarvestScope(settings.OpenAICodexTicketHarvestScope)
+	if scopeErr != nil {
+		return nil, infraerrors.BadRequest("INVALID_TICKET_HARVEST_SCOPE", scopeErr.Error())
+	}
+	// Validate only a changed selection, so deleting a selected group does not
+	// prevent unrelated settings from being saved. Stale IDs match no accounts.
+	scopeJSON, _ := json.Marshal(scope)
+	if s.defaultSubGroupReader != nil && len(scope.GroupIDs) > 0 {
+		old, readErr := s.GetCodexTicketHarvestScope(ctx)
+		if readErr != nil || old.Mode != scope.Mode || !slices.Equal(old.GroupIDs, scope.GroupIDs) {
+			for _, id := range scope.GroupIDs {
+				group, err := s.defaultSubGroupReader.GetByID(ctx, id)
+				if err != nil && !errors.Is(err, ErrGroupNotFound) {
+					return nil, err
+				}
+				if err != nil || group == nil || group.Platform != PlatformOpenAI {
+					return nil, infraerrors.BadRequest("INVALID_TICKET_HARVEST_GROUP", "harvest groups must exist and use the OpenAI platform")
+				}
+			}
+		}
+	}
+	updates[SettingKeyOpenAICodexTicketHarvestScope] = string(scopeJSON)
 	updates[SettingKeyOpenAICodexTicketStrategy] = NormalizeCodexTicketStrategy(settings.OpenAICodexTicketStrategy)
 	updates[SettingKeyOpenAICodexTicketStrict] = strconv.FormatBool(settings.OpenAICodexTicketStrictResponse)
 	if settings.OpenAICodexTicketStaticProxyURL != "" {
