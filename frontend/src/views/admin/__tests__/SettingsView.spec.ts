@@ -760,6 +760,40 @@ describe("admin SettingsView payment visible method controls", () => {
     wrapper.unmount();
   });
 
+  it("loads and saves selected harvest groups, preserving an explicitly empty selection", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse,
+      openai_codex_ticket_harvest_scope: { mode: 'selected', group_ids: [2] },
+    });
+    getGroups.mockResolvedValueOnce([
+      { id: 2, name: 'PLUS', platform: 'openai', status: 'active' },
+      { id: 24, name: 'PRO', platform: 'openai', status: 'active' },
+      { id: 32, name: 'Grok', platform: 'grok', status: 'active' },
+    ]);
+    const wrapper = mountView(); await flushPromises();
+    expect(wrapper.find('#codex-ticket-group-32').exists()).toBe(false);
+    expect(wrapper.get<HTMLInputElement>('#codex-ticket-group-2').element.checked).toBe(true);
+    await wrapper.get('#codex-ticket-group-24').setValue(true);
+    await wrapper.find('form').trigger('submit.prevent'); await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_scope).toEqual({mode:'selected',group_ids:[2,24]});
+    await wrapper.get('#codex-ticket-group-2').setValue(false);
+    await wrapper.get('#codex-ticket-group-24').setValue(false);
+    await wrapper.find('form').trigger('submit.prevent'); await flushPromises();
+    expect(updateSettings.mock.calls[1]?.[0].openai_codex_ticket_harvest_scope).toEqual({mode:'selected',group_ids:[]});
+    wrapper.unmount();
+  });
+
+  it("preserves selected harvest IDs when group loading fails", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse,
+      openai_codex_ticket_harvest_scope: { mode: 'selected', group_ids: [24] },
+    });
+    getGroups.mockRejectedValueOnce(new Error('offline'));
+    const wrapper = mountView(); await flushPromises();
+    expect(wrapper.get<HTMLInputElement>('#codex-ticket-group-24').element.checked).toBe(true);
+    await wrapper.find('form').trigger('submit.prevent'); await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_scope).toEqual({mode:'selected',group_ids:[24]});
+    wrapper.unmount();
+  });
+
   it("keeps strict ticket response rejection opt-in", async () => {
     const wrapper=mountView();await flushPromises();
     expect(wrapper.get<HTMLInputElement>('#codex-ticket-strict').element.checked).toBe(false);

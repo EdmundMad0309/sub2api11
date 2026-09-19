@@ -14,9 +14,11 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -681,51 +683,98 @@ func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
 	if s.settingService.GetCodexTicketStrategy(ctx) == "fixed" {
 		refreshBefore = 0
 	}
-	var wg sync.WaitGroup
-	probed := 0
-	total := len(accounts) * len(cfg.Models)
-	if total == 0 {
+	scope, err := s.settingService.GetCodexTicketHarvestScope(ctx)
+	if err != nil {
+		logger.L().Warn("openai_codex_ticket harvest scope unavailable; skipping round", zap.Error(err))
 		return
 	}
-	start := int(s.openaiCodexTicketCursor.Load() % uint64(total))
-	for offset := 0; offset < total && probed < cfg.MaxProbesPerRound; offset++ {
-		index := (start + offset) % total
-		s.openaiCodexTicketCursor.Store(uint64((index + 1) % total))
-		account := accounts[index/len(cfg.Models)]
-		if account.Status != StatusActive || account.IsRateLimited() || !isOpenAICodexTicketAccount(&account) {
+	// Independent circular queues prevent a cursor in the deferred tail from
+	// bypassing schedulable accounts at the start of the next round.
+	tiers := map[codexHarvestTier][]Account{}
+	seen := make(map[int64]bool, len(accounts))
+	for _, account := range accounts {
+		if seen[account.ID] || !scope.includes(&account) || account.Status != StatusActive || account.IsRateLimited() || !isOpenAICodexTicketAccount(&account) {
 			continue
 		}
-		model := normalizeOpenAICodexTicketModel(cfg.Models[index%len(cfg.Models)])
-		if model == "" {
-			continue
+		seen[account.ID] = true
+		tier := scope.tier(&account)
+		tiers[tier] = append(tiers[tier], account)
+	}
+	keys := make([]codexHarvestTier, 0, len(tiers))
+	for key := range tiers {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].Schedulable != keys[j].Schedulable {
+			return keys[i].Schedulable
 		}
-		if probed >= cfg.MaxProbesPerRound {
+		if keys[i].Priority != keys[j].Priority {
+			return keys[i].Priority < keys[j].Priority
+		}
+		return keys[i].AccountPriority < keys[j].AccountPriority
+	})
+	// Remove obsolete buckets when membership/priorities change.
+	s.openaiCodexTicketCursors.Range(func(key, _ any) bool {
+		if _, exists := tiers[key.(codexHarvestTier)]; !exists {
+			s.openaiCodexTicketCursors.Delete(key)
+		}
+		return true
+	})
+	counts := [2]int{}
+	probed := 0
+	for _, tier := range keys {
+		pool := tiers[tier]
+		// The repository orders by global priority only. Stabilize equal-priority
+		// rows so database tie ordering cannot defeat round-robin fairness.
+		sort.Slice(pool, func(i, j int) bool { return pool[i].ID < pool[j].ID })
+		if ctx.Err() != nil || probed >= cfg.MaxProbesPerRound {
 			break
 		}
-		if s.ticketProbeCoolingDown(account.ID, model, now) {
+		total := len(pool) * len(cfg.Models)
+		if total == 0 {
 			continue
 		}
-		// 已有一张有效且未临近过期的票 → 本周期不打，省得白刷。
-		if t := s.lookupOpenAICodexTicket(&account, model); t.valid(now, openAICodexTicketTargetLength(&account, cfg)) && !t.needsRefresh(now, refreshBefore) {
-			continue
+		stored, _ := s.openaiCodexTicketCursors.LoadOrStore(tier, &atomic.Uint64{})
+		cursor := stored.(*atomic.Uint64)
+		start := int(cursor.Load() % uint64(total))
+		var wg sync.WaitGroup
+		for offset := 0; offset < total && probed < cfg.MaxProbesPerRound && ctx.Err() == nil; offset++ {
+			index := (start + offset) % total
+			cursor.Store(uint64((index + 1) % total))
+			account := pool[index/len(cfg.Models)]
+			model := normalizeOpenAICodexTicketModel(cfg.Models[index%len(cfg.Models)])
+			if model == "" || s.ticketProbeCoolingDown(account.ID, model, now) {
+				continue
+			}
+			ticket := s.lookupOpenAICodexTicket(&account, model)
+			if ticket.valid(now, openAICodexTicketTargetLength(&account, cfg)) && !ticket.needsRefresh(now, refreshBefore) {
+				continue
+			}
+			if ticket != nil && ticket.Standby.valid(now, openAICodexTicketTargetLength(&account, cfg)) && !ticket.Standby.needsRefresh(now, refreshBefore) {
+				continue
+			}
+			acc := account
+			acc.Extra = maps.Clone(account.Extra)
+			acc.Credentials = maps.Clone(account.Credentials)
+			probed++
+			if tier.Schedulable {
+				counts[0]++
+			} else {
+				counts[1]++
+			}
+			wg.Add(1)
+			go func(acc Account, model string) {
+				defer wg.Done()
+				s.probeOnceOpenAICodexTicket(ctx, &acc, model)
+			}(acc, model)
 		}
-		if t := s.lookupOpenAICodexTicket(&account, model); t != nil && t.Standby.valid(now, openAICodexTicketTargetLength(&account, cfg)) && !t.Standby.needsRefresh(now, refreshBefore) {
-			continue
-		}
-		acc := account
-		// Token/header helpers may update account metadata; each model owns its maps.
-		acc.Extra = maps.Clone(account.Extra)
-		acc.Credentials = maps.Clone(account.Credentials)
-		probed++
-		wg.Add(1)
-		go func(acc Account, model string) {
-			defer wg.Done()
-			s.probeOnceOpenAICodexTicket(ctx, &acc, model)
-		}(acc, model)
+		// Complete the high-priority tier before competing for proxy leases.
+		wg.Wait()
 	}
-	wg.Wait()
 	if probed > 0 {
-		logger.L().Info("openai_codex_ticket probe cycle", zap.Int("probed", probed))
+		logger.L().Info("openai_codex_ticket probe cycle", zap.Int("probed", probed),
+			zap.Int("schedulable_probed", counts[0]), zap.Int("deferred_probed", counts[1]),
+			zap.String("scope", scope.Mode), zap.Int("selected_groups", len(scope.GroupIDs)))
 	}
 }
 
