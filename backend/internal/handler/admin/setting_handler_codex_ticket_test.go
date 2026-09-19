@@ -93,3 +93,17 @@ func TestSettingsCodexTicketStrategyRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Equal(t, "standby", repo.values[key])
 }
+
+func TestSettingsCodexTicketStrictPreservesOmittedValue(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{})
+	key := service.SettingKeyOpenAICodexTicketStrict
+	require.False(t, h.settingService.CodexTicketStrictResponse(context.Background()))
+	rec := doUpdateSettings(t, h, map[string]any{key: true}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doUpdateSettings(t, h, map[string]any{"site_name": "unchanged-policy"}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "true", repo.values[key])
+	rec = doUpdateSettings(t, h, map[string]any{key: false}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "false", repo.values[key])
+}

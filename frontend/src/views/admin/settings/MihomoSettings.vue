@@ -17,6 +17,7 @@
       <button v-if="status.running" type="button" class="btn btn-secondary ml-2" @click="$emit('ready', status.endpoint)">{{ text('设为打票代理', 'Use for ticket harvesting') }}</button>
       <p class="text-xs text-gray-500">{{ text('应用成功后点击“设为打票代理”，再保存系统设置。', 'After applying, select Use for ticket harvesting and save system settings.') }}</p>
       <details v-if="status.node_states?.length">
+        <label class="my-2 flex items-center gap-2 text-sm"><input type="checkbox" :checked="status.use_once" :disabled="pending || status.busy" @change="operate(status.use_once ? 'once_off' : 'once_on')" />{{ text('打票节点用后移出（需手动恢复）', 'Retire each harvest node after use (manual recovery)') }}</label>
         <summary class="cursor-pointer text-sm">{{ text('节点管理', 'Manage nodes') }}</summary>
         <p class="my-2 text-xs text-gray-500">{{ text('检测仅测试网络连接，不调用模型。失败或停用节点需手动恢复。', 'Tests network connectivity only. Failed or disabled nodes require manual recovery.') }}</p>
         <div class="max-h-64 overflow-auto">
@@ -37,7 +38,7 @@ import { apiClient } from '@/api/client'
 const { locale } = useI18n()
 const text = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en
 defineEmits<{ ready: [endpoint: string] }>()
-interface Status { installed: boolean; running: boolean; busy: boolean; supported: boolean; phase: string; error?: string; nodes: number; subscriptions: number; endpoint: string; node_states?: { name: string; state: string }[] }
+interface Status { installed: boolean; running: boolean; busy: boolean; supported: boolean; phase: string; error?: string; nodes: number; subscriptions: number; endpoint: string; use_once?: boolean; node_states?: { name: string; state: string }[] }
 const status = ref<Status>(); const subscriptions = ref(''); const append = ref(false); const pending = ref(false); const error = ref('')
 let timer: ReturnType<typeof setTimeout> | undefined
 let disposed = false

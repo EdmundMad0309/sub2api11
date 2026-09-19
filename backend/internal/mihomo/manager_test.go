@@ -3,6 +3,7 @@ package mihomo
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -138,6 +139,20 @@ func TestOfficialKernelInstallation(t *testing.T) {
 	require.NoError(t, m.run(ctx, "apply", saved{URLs: []string{server.URL}}))
 	require.True(t, m.Status().Running)
 	require.Equal(t, 1, m.Status().Nodes)
+	require.NoError(t, m.run(ctx, "once_on", m.saved))
+	finish, err := Lease(ctx, Endpoint)
+	require.NoError(t, err)
+	require.Equal(t, "used", m.Status().NodeStates[0].State)
+	blockedCtx, blockedCancel := context.WithTimeout(ctx, 20*time.Millisecond)
+	_, blockedErr := Lease(blockedCtx, Endpoint)
+	blockedCancel()
+	require.Error(t, blockedErr)
+	finish(true)
+	finish(true)
+	_, err = Lease(ctx, Endpoint)
+	require.Error(t, err)
+	require.NoError(t, m.run(ctx, "recover/"+m.Status().NodeStates[0].Name, m.saved))
+	require.NoError(t, m.run(ctx, "once_off", m.saved))
 	old := m.saved
 	require.Error(t, m.run(ctx, "apply", saved{URLs: []string{server.URL + "/invalid"}, Nodes: nil}))
 	require.Equal(t, old.URLs, m.saved.URLs)
@@ -151,12 +166,38 @@ func TestOfficialKernelInstallation(t *testing.T) {
 	legacyCache, _ := json.Marshal(map[string]any{"proxies": old.Nodes})
 	require.NoError(t, os.WriteFile(filepath.Join(legacyDir, "config.yaml"), legacyConfig, 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(legacyDir, "airport.yaml"), legacyCache, 0600))
+	unit := fmt.Sprintf("sub2api-mihomo-test-%d.service", os.Getpid())
+	useSystemd := os.Getenv("MIHOMO_SYSTEMD_SMOKE") == "1"
+	startLegacy := func() {
+		baseConfig, configErr := m.config(old)
+		require.NoError(t, configErr)
+		var cfg map[string]any
+		require.NoError(t, json.Unmarshal(baseConfig, &cfg))
+		cfg["proxy-providers"] = map[string]any{"airport": map[string]any{"type": "file", "url": server.URL, "path": filepath.Join(legacyDir, "airport.yaml")}}
+		full, _ := json.Marshal(cfg)
+		require.NoError(t, os.WriteFile(filepath.Join(legacyDir, "config.yaml"), full, 0600))
+		out, startErr := exec.CommandContext(ctx, "systemd-run", "--user", "--unit="+unit, "--property=RuntimeMaxSec=120", filepath.Join(m.dir, "mihomo"), "-d", legacyDir, "-f", filepath.Join(legacyDir, "config.yaml")).CombinedOutput()
+		require.NoError(t, startErr, string(out))
+		require.Eventually(t, func() bool { return m.control(ctx, http.MethodGet, "/version", old.Secret, nil) == nil }, 10*time.Second, 100*time.Millisecond)
+	}
+	if useSystemd {
+		t.Cleanup(func() { _ = exec.Command("systemctl", "--user", "stop", unit).Run() })
+		startLegacy()
+	}
 	migratedDir := t.TempDir()
 	require.NoError(t, PrepareLegacy(ctx, migratedDir, filepath.Join(legacyDir, "config.yaml"), filepath.Join(legacyDir, "airport.yaml"), filepath.Join(m.dir, "mihomo")))
+	if useSystemd {
+		require.NoError(t, exec.CommandContext(ctx, "systemctl", "--user", "stop", unit).Run())
+	}
 	migrated := New(filepath.Join(migratedDir, "mihomo-codex"))
 	defer migrated.Close()
 	require.Eventually(t, func() bool { return migrated.Status().Running }, 10*time.Second, 100*time.Millisecond)
 	require.NoError(t, CheckManaged(ctx, migratedDir))
+	if useSystemd {
+		migrated.Close()
+		startLegacy()
+		require.NoError(t, exec.CommandContext(ctx, "systemctl", "--user", "stop", unit).Run())
+	}
 }
 
 func TestDisabledNodesAreExcludedFromRotation(t *testing.T) {

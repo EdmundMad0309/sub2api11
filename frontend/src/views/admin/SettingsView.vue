@@ -4528,6 +4528,8 @@
                     <option value="standby">{{ localText('提前准备备用（默认）', 'Prepare standby (default)') }}</option>
                     <option value="fixed">{{ localText('固定主用，失效后再采集', 'Keep primary until invalid') }}</option>
                   </select>
+                  <label class="mt-3 flex items-center gap-2 text-sm"><input id="codex-ticket-strict" type="checkbox" v-model="form.openai_codex_ticket_strict_response" />{{ localText('严格拦截票据响应不匹配（默认关闭）', 'Reject mismatched ticket responses (off by default)') }}</label>
+                  <p class="mt-1 text-xs text-gray-500">{{ localText('仅在 HTTP 响应头明确不匹配时拦截正文；当前请求可能已计费，不会自动重放。关闭时只更新后续票据调度。', 'Rejects the body when HTTP response state headers mismatch. The upstream may have charged; the request is not replayed. When off, only future ticket scheduling changes.') }}</p>
                   <p class="mt-1 text-xs text-gray-500">{{ localText('切换策略保留有效主备票据和冷却。固定主用可能在失效后短暂等待新票。', 'Switching preserves valid tickets and cooldowns. Fixed primary may briefly wait for a new ticket after expiry.') }}</p>
                   <div class="mt-3 grid gap-3 sm:grid-cols-2">
                     <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
@@ -9959,6 +9961,7 @@ const form = reactive<SettingsForm>({
   openai_codex_version_auto_sync_enabled: true,
   openai_codex_ticket_enabled: false,
   openai_codex_ticket_strategy: 'standby',
+  openai_codex_ticket_strict_response: false,
   openai_codex_ticket_harvest_proxy_url: "",
   openai_codex_ticket_harvest_proxy_configured: false,
   openai_codex_ticket_models: ["gpt-6-astra", "gpt-5.6-sol"],
@@ -11610,6 +11613,7 @@ async function saveSettings() {
         form.openai_codex_version_auto_sync_enabled,
       openai_codex_ticket_enabled: form.openai_codex_ticket_enabled,
       openai_codex_ticket_strategy: form.openai_codex_ticket_strategy || 'standby',
+      openai_codex_ticket_strict_response: form.openai_codex_ticket_strict_response || false,
       openai_codex_ticket_harvest_proxy_url:
         form.openai_codex_ticket_harvest_proxy_url?.trim() || "",
       openai_codex_ticket_use_saved_static_proxy: codexTicketProxyMode.value === 'static',

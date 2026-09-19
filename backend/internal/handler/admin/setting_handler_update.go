@@ -22,7 +22,8 @@ import (
 
 // UpdateSettingsRequest 更新设置请求
 type UpdateSettingsRequest struct {
-	OpenAICodexTicketStrategy *string `json:"openai_codex_ticket_strategy"`
+	OpenAICodexTicketStrictResponse *bool   `json:"openai_codex_ticket_strict_response"`
+	OpenAICodexTicketStrategy       *string `json:"openai_codex_ticket_strategy"`
 	// 注册设置
 	RegistrationEnabled                 bool                         `json:"registration_enabled"`
 	EmailVerifyEnabled                  bool                         `json:"email_verify_enabled"`
@@ -1795,6 +1796,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.OpenAICodexTicketStaticProxyURL
 		}(),
+		OpenAICodexTicketStrictResponse: func() bool {
+			if req.OpenAICodexTicketStrictResponse != nil {
+				return *req.OpenAICodexTicketStrictResponse
+			}
+			return previousSettings.OpenAICodexTicketStrictResponse
+		}(),
 		OpenAICodexTicketStrategy: func() string {
 			if req.OpenAICodexTicketStrategy != nil {
 				return *req.OpenAICodexTicketStrategy
@@ -2353,6 +2360,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAICodexTicketHarvestProxyURL:                       service.MaskProxyURL(updatedSettings.OpenAICodexTicketHarvestProxyURL),
 		OpenAICodexTicketStaticProxyURL:                        service.MaskProxyURL(updatedSettings.OpenAICodexTicketStaticProxyURL),
 		OpenAICodexTicketStrategy:                              updatedSettings.OpenAICodexTicketStrategy,
+		OpenAICodexTicketStrictResponse:                        updatedSettings.OpenAICodexTicketStrictResponse,
 		OpenAICodexTicketHarvestProxyConfigured:                strings.TrimSpace(updatedSettings.OpenAICodexTicketHarvestProxyURL) != "",
 		OpenAICodexTicketModels:                                updatedSettings.OpenAICodexTicketModels,
 		MinCodexVersion:                                        updatedSettings.MinCodexVersion,

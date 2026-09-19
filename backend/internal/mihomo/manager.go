@@ -43,6 +43,7 @@ func CloseAll() {
 }
 
 type Status struct {
+	UseOnce       bool         `json:"use_once"`
 	Installed     bool         `json:"installed"`
 	Running       bool         `json:"running"`
 	Busy          bool         `json:"busy"`
@@ -61,6 +62,7 @@ type NodeStatus struct {
 }
 
 type saved struct {
+	UseOnce  bool              `json:"use_once,omitempty"`
 	URLs     []string          `json:"urls"`
 	Nodes    []map[string]any  `json:"nodes"`
 	Secret   string            `json:"secret"`
@@ -68,20 +70,22 @@ type saved struct {
 }
 
 type Manager struct {
-	mu     sync.Mutex
-	dir    string
-	state  Status
-	saved  saved
-	cmd    *exec.Cmd
-	done   chan struct{}
-	cancel context.CancelFunc
-	closed bool
-	wg     sync.WaitGroup
-	client *http.Client
+	controllerURL string // optional override for isolated controller tests
+	gate          chan struct{}
+	mu            sync.Mutex
+	dir           string
+	state         Status
+	saved         saved
+	cmd           *exec.Cmd
+	done          chan struct{}
+	cancel        context.CancelFunc
+	closed        bool
+	wg            sync.WaitGroup
+	client        *http.Client
 }
 
 func New(dir string) *Manager {
-	m := &Manager{dir: dir, client: &http.Client{Timeout: 30 * time.Second}}
+	m := &Manager{dir: dir, client: &http.Client{Timeout: 30 * time.Second}, gate: make(chan struct{}, 1)}
 	m.state = Status{Endpoint: Endpoint, Phase: "not_installed", Supported: runtime.GOOS == "linux" && (runtime.GOARCH == "amd64" || runtime.GOARCH == "arm64")}
 	if b, err := os.ReadFile(filepath.Join(dir, "settings.json")); err == nil {
 		_ = json.Unmarshal(b, &m.saved)
@@ -101,6 +105,7 @@ func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s := m.state
+	s.UseOnce = m.saved.UseOnce
 	s.Subscriptions = len(m.saved.URLs)
 	s.Nodes = len(m.saved.Nodes)
 	for _, n := range m.saved.Nodes {
@@ -118,7 +123,7 @@ func (m *Manager) Status() Status {
 // Submit serializes long-running work and never returns subprocess output or URLs.
 func (m *Manager) Submit(action string, urls []string, appendURLs bool) error {
 	op, node, hasNode := strings.Cut(action, "/")
-	if op != "install" && op != "apply" && op != "start" && op != "disable" && op != "recover" && op != "probe" {
+	if op != "install" && op != "apply" && op != "start" && op != "disable" && op != "recover" && op != "probe" && op != "once_on" && op != "once_off" {
 		return errors.New("unknown operation")
 	}
 	if (op == "disable" || op == "recover" || op == "probe") != hasNode || (hasNode && (node == "" || strings.Contains(node, "/"))) {
@@ -160,7 +165,16 @@ func (m *Manager) Submit(action string, urls []string, appendURLs bool) error {
 	go func() {
 		defer m.wg.Done()
 		defer cancel()
-		err := m.run(ctx, action, next)
+		err := m.acquire(ctx)
+		if err == nil {
+			// A queued operation must see any node retired by the preceding lease.
+			m.mu.Lock()
+			next.Disabled = m.saved.Disabled
+			next.UseOnce = m.saved.UseOnce
+			m.mu.Unlock()
+			err = m.run(ctx, action, next)
+			m.release()
+		}
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		m.state.Busy = false
@@ -237,6 +251,12 @@ func (m *Manager) run(ctx context.Context, action string, next saved) error {
 	if len(next.Nodes) == 0 {
 		return errors.New("save a valid subscription first")
 	}
+	if action == "once_on" {
+		next.UseOnce = true
+	}
+	if action == "once_off" {
+		next.UseOnce = false
+	}
 	if op, name, ok := strings.Cut(action, "/"); ok {
 		found := false
 		for _, n := range next.Nodes {
@@ -253,6 +273,10 @@ func (m *Manager) run(ctx context.Context, action string, next saved) error {
 		}
 		next.Disabled = states
 		switch op {
+		case "used":
+			next.Disabled[name] = "used"
+		case "failed":
+			next.Disabled[name] = "failed"
 		case "disable":
 			next.Disabled[name] = "disabled"
 		case "recover":
@@ -464,11 +488,22 @@ func (m *Manager) config(s saved) ([]byte, error) {
 	if len(names) == 0 {
 		names = []string{"REJECT"}
 	}
-	return json.Marshal(map[string]any{"mixed-port": 3101, "allow-lan": false, "bind-address": "127.0.0.1", "mode": "rule", "log-level": "silent", "external-controller": "127.0.0.1:9098", "secret": s.Secret, "proxies": s.Nodes, "proxy-groups": []any{map[string]any{"name": "CODEX-ROTATE", "type": "load-balance", "strategy": "round-robin", "proxies": names, "url": "https://www.gstatic.com/generate_204", "interval": 300}}, "rules": []string{"MATCH,CODEX-ROTATE"}})
+	group := map[string]any{"name": "CODEX-ROTATE", "type": "load-balance", "strategy": "round-robin", "proxies": names, "url": "https://www.gstatic.com/generate_204", "interval": 300}
+	if s.UseOnce {
+		group["type"] = "select"
+		delete(group, "strategy")
+		delete(group, "url")
+		delete(group, "interval")
+	}
+	return json.Marshal(map[string]any{"mixed-port": 3101, "allow-lan": false, "bind-address": "127.0.0.1", "mode": "rule", "log-level": "silent", "external-controller": "127.0.0.1:9098", "secret": s.Secret, "proxies": s.Nodes, "proxy-groups": []any{group}, "rules": []string{"MATCH,CODEX-ROTATE"}})
 }
 
 func (m *Manager) control(ctx context.Context, method, path, secret string, payload []byte) error {
-	req, err := http.NewRequestWithContext(ctx, method, "http://127.0.0.1:9098"+path, bytes.NewReader(payload))
+	base := m.controllerURL
+	if base == "" {
+		base = "http://127.0.0.1:9098"
+	}
+	req, err := http.NewRequestWithContext(ctx, method, base+path, bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
@@ -529,10 +564,20 @@ func (m *Manager) start(ctx context.Context, path, secret string) error {
 	}()
 	for i := 0; i < 40; i++ {
 		if m.control(ctx, http.MethodGet, "/version", secret, nil) == nil {
-			m.mu.Lock()
-			m.state.Running = true
-			m.mu.Unlock()
-			return nil
+			conn, dialErr := (&net.Dialer{Timeout: 200 * time.Millisecond}).DialContext(ctx, "tcp", "127.0.0.1:3101")
+			if dialErr == nil {
+				_ = conn.Close()
+				m.mu.Lock()
+				select {
+				case <-done:
+					m.mu.Unlock()
+					return errors.New("kernel exited during startup")
+				default:
+				}
+				m.state.Running = true
+				m.mu.Unlock()
+				return nil
+			}
 		}
 		select {
 		case <-ctx.Done():

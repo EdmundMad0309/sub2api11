@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/mihomo"
 	"io"
 	"maps"
 	"net/http"
@@ -528,6 +529,11 @@ func (s *OpenAIGatewayService) fireOpenAICodexTicketProbe(ctx context.Context, a
 	// Synthetic probes must use the dedicated no-reuse transport even when the
 	// production account is bound to a plugin. This also avoids reading pluginManager
 	// while handlers are still wiring it during gateway construction.
+	releaseNode, leaseErr := mihomo.Lease(attemptCtx, proxyURL)
+	if leaseErr != nil {
+		return "", 0, leaseErr
+	}
+	defer func() { releaseNode(err == nil && status == http.StatusOK) }()
 	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
 		return "", 0, err

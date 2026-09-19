@@ -28,6 +28,7 @@ type CustomEndpoint struct {
 
 // SystemSettings represents the admin settings API response payload.
 type SystemSettings struct {
+	OpenAICodexTicketStrictResponse     bool                     `json:"openai_codex_ticket_strict_response,omitempty"`
 	OpenAICodexTicketStrategy           string                   `json:"openai_codex_ticket_strategy"`
 	RegistrationEnabled                 bool                     `json:"registration_enabled"`
 	EmailVerifyEnabled                  bool                     `json:"email_verify_enabled"`

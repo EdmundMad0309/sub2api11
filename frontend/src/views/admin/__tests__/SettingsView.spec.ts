@@ -760,6 +760,15 @@ describe("admin SettingsView payment visible method controls", () => {
     wrapper.unmount();
   });
 
+  it("keeps strict ticket response rejection opt-in", async () => {
+    const wrapper=mountView();await flushPromises();
+    expect(wrapper.get<HTMLInputElement>('#codex-ticket-strict').element.checked).toBe(false);
+    await wrapper.get('#codex-ticket-strict').setValue(true);
+    await wrapper.find('form').trigger('submit.prevent');await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_strict_response).toBe(true);
+    wrapper.unmount();
+  });
+
   it("loads the masked Codex harvest proxy and submits a replacement URL", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,

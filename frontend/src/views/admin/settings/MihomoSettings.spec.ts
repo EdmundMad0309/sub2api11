@@ -6,6 +6,14 @@ vi.mock('@/api/client', () => ({ apiClient: { get, post } }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ locale: { value: 'zh' } }) }))
 const base = { installed: false, supported: true, running: false, busy: false, nodes: 0, subscriptions: 0, phase: 'not_installed', endpoint: 'http://127.0.0.1:3101' }
 describe('Mihomo settings', () => {
+  it('explicitly enables use-once without replacing subscriptions', async () => {
+    get.mockResolvedValue({data:{...base,installed:true,running:true,nodes:1,use_once:false,node_states:[{name:'node-one',state:'enabled'}]}})
+    post.mockResolvedValue({data:{...base,installed:true,running:true,use_once:true}})
+    const wrapper=mount(MihomoSettings);await flushPromises()
+    await wrapper.get('details input[type="checkbox"]').setValue(true);await flushPromises()
+    expect(post).toHaveBeenCalledWith('/admin/system/mihomo',expect.objectContaining({action:'once_on',subscriptions:[]}))
+    wrapper.unmount()
+  })
   beforeEach(() => { vi.resetAllMocks(); get.mockResolvedValue({ data: base }); post.mockResolvedValue({ data: base }) })
   it('installs only after explicit action and does not emit an unready proxy', async () => {
     const wrapper = mount(MihomoSettings); await flushPromises()

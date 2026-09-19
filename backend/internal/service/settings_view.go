@@ -12,6 +12,7 @@ func firstNonEmpty(values ...string) string {
 }
 
 type SystemSettings struct {
+	OpenAICodexTicketStrictResponse     bool
 	OpenAICodexTicketStrategy           string
 	RegistrationEnabled                 bool
 	EmailVerifyEnabled                  bool
