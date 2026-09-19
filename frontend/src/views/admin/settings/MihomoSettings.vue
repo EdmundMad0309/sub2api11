@@ -51,8 +51,8 @@ async function refresh() {
 async function operate(action: string) {
   pending.value = true; error.value = ''
   try {
-    status.value = (await apiClient.post<Status>('/admin/system/mihomo', { action, subscriptions: subscriptions.value.split(/\r?\n/).filter(s => s.trim()), append: append.value })).data
-    subscriptions.value = ''
+    status.value = (await apiClient.post<Status>('/admin/system/mihomo', { action, subscriptions: action === 'apply' ? subscriptions.value.split(/\r?\n/).filter(s => s.trim()) : [], append: append.value })).data
+    if (action === 'apply') subscriptions.value = ''
     await refresh()
   } catch { error.value = text('操作未提交，请检查服务状态后重试', 'Operation was not accepted; check service status and retry') }
   finally { pending.value = false }
