@@ -43,45 +43,57 @@ func CloseAll() {
 }
 
 type Status struct {
-	UseOnce       bool         `json:"use_once"`
-	Installed     bool         `json:"installed"`
-	Running       bool         `json:"running"`
-	Busy          bool         `json:"busy"`
-	Phase         string       `json:"phase"`
-	Error         string       `json:"error,omitempty"`
-	Subscriptions int          `json:"subscriptions"`
-	Nodes         int          `json:"nodes"`
-	Endpoint      string       `json:"endpoint"`
-	Supported     bool         `json:"supported"`
-	NodeStates    []NodeStatus `json:"node_states"`
+	CountryFilter    CountryFilter `json:"country_filter"`
+	CountryCodes     []string      `json:"country_codes"`
+	EligibleNodes    int           `json:"eligible_nodes"`
+	CountryExcluded  int           `json:"country_excluded"`
+	UnknownCountries int           `json:"unknown_countries"`
+	UseOnce          bool          `json:"use_once"`
+	Installed        bool          `json:"installed"`
+	Running          bool          `json:"running"`
+	Busy             bool          `json:"busy"`
+	Phase            string        `json:"phase"`
+	Error            string        `json:"error,omitempty"`
+	Subscriptions    int           `json:"subscriptions"`
+	Nodes            int           `json:"nodes"`
+	Endpoint         string        `json:"endpoint"`
+	Supported        bool          `json:"supported"`
+	NodeStates       []NodeStatus  `json:"node_states"`
 }
 
 type NodeStatus struct {
-	Name  string `json:"name"`
-	State string `json:"state"`
+	CountryCode      string     `json:"country_code,omitempty"`
+	CountryCheckedAt *time.Time `json:"country_checked_at,omitempty"`
+	CountryError     string     `json:"country_error,omitempty"`
+	CountryBlocked   bool       `json:"country_blocked"`
+	Name             string     `json:"name"`
+	State            string     `json:"state"`
 }
 
 type saved struct {
-	UseOnce  bool              `json:"use_once,omitempty"`
-	URLs     []string          `json:"urls"`
-	Nodes    []map[string]any  `json:"nodes"`
-	Secret   string            `json:"secret"`
-	Disabled map[string]string `json:"disabled,omitempty"`
+	CountryFilter CountryFilter                 `json:"country_filter"`
+	Countries     map[string]CountryObservation `json:"countries,omitempty"`
+	UseOnce       bool                          `json:"use_once,omitempty"`
+	URLs          []string                      `json:"urls"`
+	Nodes         []map[string]any              `json:"nodes"`
+	Secret        string                        `json:"secret"`
+	Disabled      map[string]string             `json:"disabled,omitempty"`
 }
 
 type Manager struct {
-	controllerURL string // optional override for isolated controller tests
-	gate          chan struct{}
-	mu            sync.Mutex
-	dir           string
-	state         Status
-	saved         saved
-	cmd           *exec.Cmd
-	done          chan struct{}
-	cancel        context.CancelFunc
-	closed        bool
-	wg            sync.WaitGroup
-	client        *http.Client
+	countryLookupURL string // test-only override; administrators cannot change the lookup target
+	controllerURL    string // optional override for isolated controller tests
+	gate             chan struct{}
+	mu               sync.Mutex
+	dir              string
+	state            Status
+	saved            saved
+	cmd              *exec.Cmd
+	done             chan struct{}
+	cancel           context.CancelFunc
+	closed           bool
+	wg               sync.WaitGroup
+	client           *http.Client
 }
 
 func New(dir string) *Manager {
@@ -105,6 +117,12 @@ func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s := m.state
+	s.CountryFilter = m.saved.CountryFilter
+	if s.CountryFilter.Mode == "" {
+		s.CountryFilter.Mode = "off"
+	}
+	s.CountryFilter.Codes = append([]string{}, s.CountryFilter.Codes...)
+	s.CountryCodes = countryCodes()
 	s.UseOnce = m.saved.UseOnce
 	s.Subscriptions = len(m.saved.URLs)
 	s.Nodes = len(m.saved.Nodes)
@@ -114,24 +132,52 @@ func (m *Manager) Status() Status {
 			if disabled := m.saved.Disabled[name]; disabled != "" {
 				state = disabled
 			}
-			s.NodeStates = append(s.NodeStates, NodeStatus{Name: name, State: state})
+			observation := m.saved.Countries[name]
+			blocked := !countryAllowed(m.saved, name)
+			if !validCountry(observation.Code) {
+				s.UnknownCountries++
+			}
+			if blocked {
+				s.CountryExcluded++
+				if state == "enabled" {
+					state = "country_excluded"
+				}
+			} else if state == "enabled" {
+				s.EligibleNodes++
+			}
+			node := NodeStatus{Name: name, State: state, CountryCode: observation.Code, CountryError: observation.Error, CountryBlocked: blocked}
+			if !observation.CheckedAt.IsZero() {
+				checked := observation.CheckedAt
+				node.CountryCheckedAt = &checked
+			}
+			s.NodeStates = append(s.NodeStates, node)
 		}
 	}
 	return s
 }
 
 // Submit serializes long-running work and never returns subprocess output or URLs.
-func (m *Manager) Submit(action string, urls []string, appendURLs bool) error {
+func (m *Manager) Submit(action string, urls []string, appendURLs bool, filters ...*CountryFilter) error {
 	op, node, hasNode := strings.Cut(action, "/")
-	if op != "install" && op != "apply" && op != "start" && op != "disable" && op != "recover" && op != "probe" && op != "once_on" && op != "once_off" {
+	if op != "install" && op != "apply" && op != "start" && op != "disable" && op != "recover" && op != "probe" && op != "once_on" && op != "once_off" && op != "country_filter" && op != "country_scan" && op != "country_probe" {
 		return errors.New("unknown operation")
 	}
-	if (op == "disable" || op == "recover" || op == "probe") != hasNode || (hasNode && (node == "" || strings.Contains(node, "/"))) {
+	if (op == "disable" || op == "recover" || op == "probe" || op == "country_probe") != hasNode || (hasNode && (node == "" || strings.Contains(node, "/"))) {
 		return errors.New("invalid operation target")
 	}
 	clean, err := normalizeURLs(urls)
 	if err != nil {
 		return err
+	}
+	var filter CountryFilter
+	if op == "country_filter" {
+		if len(filters) != 1 || filters[0] == nil {
+			return errors.New("country filter is required")
+		}
+		filter, err = normalizeCountryFilter(*filters[0])
+		if err != nil {
+			return err
+		}
 	}
 	m.mu.Lock()
 	if m.closed || m.state.Busy {
@@ -143,6 +189,9 @@ func (m *Manager) Submit(action string, urls []string, appendURLs bool) error {
 		return errors.New("requires Linux amd64 or arm64")
 	}
 	next := m.saved
+	if op == "country_filter" {
+		next.CountryFilter = filter
+	}
 	if action == "apply" && len(clean) > 0 {
 		if appendURLs {
 			merged, mergeErr := normalizeURLs(append(append([]string{}, next.URLs...), clean...))
@@ -250,6 +299,17 @@ func (m *Manager) run(ctx context.Context, action string, next saved) error {
 	}
 	if len(next.Nodes) == 0 {
 		return errors.New("save a valid subscription first")
+	}
+	if action == "country_scan" || strings.HasPrefix(action, "country_probe/") {
+		target := ""
+		if strings.HasPrefix(action, "country_probe/") {
+			target = strings.TrimPrefix(action, "country_probe/")
+		}
+		observations, err := m.scanCountries(ctx, next, target)
+		if err != nil {
+			return err
+		}
+		next.Countries = observations
 	}
 	if action == "once_on" {
 		next.UseOnce = true
@@ -480,7 +540,7 @@ func (m *Manager) config(s saved) ([]byte, error) {
 		if !ok || name == "" {
 			return nil, errors.New("invalid saved node")
 		}
-		if s.Disabled[name] != "" {
+		if s.Disabled[name] != "" || !countryAllowed(s, name) {
 			continue
 		}
 		names = append(names, name)

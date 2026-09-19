@@ -16,6 +16,7 @@
       <button type="button" class="btn btn-primary" :disabled="pending || status.busy" @click="operate('apply')">{{ text('保存并应用', 'Save and apply') }}</button>
       <button v-if="status.running" type="button" class="btn btn-secondary ml-2" @click="$emit('ready', status.endpoint)">{{ text('设为打票代理', 'Use for ticket harvesting') }}</button>
       <p class="text-xs text-gray-500">{{ text('应用成功后点击“设为打票代理”，再保存系统设置。', 'After applying, select Use for ticket harvesting and save system settings.') }}</p>
+      <MihomoCountryFilter v-if="status.nodes" :filter="status.country_filter" :codes="status.country_codes || []" :nodes="status.node_states || []" :busy="pending || status.busy" @save="operate('country_filter', $event)" @scan="operate('country_scan')" />
       <details v-if="status.node_states?.length">
         <label class="my-2 flex items-center gap-2 text-sm"><input type="checkbox" :checked="status.use_once" :disabled="pending || status.busy" @change="operate(status.use_once ? 'once_off' : 'once_on')" />{{ text('打票节点用后移出（需手动恢复）', 'Retire each harvest node after use (manual recovery)') }}</label>
         <summary class="cursor-pointer text-sm">{{ text('节点管理', 'Manage nodes') }}</summary>
@@ -23,8 +24,10 @@
         <div class="max-h-64 overflow-auto">
           <div v-for="node in status.node_states" :key="node.name" class="flex items-center gap-2 py-1 text-xs">
             <code>{{ node.name }}</code><span>{{ node.state }}</span>
+            <span :title="node.country_checked_at ? new Date(node.country_checked_at).toLocaleString() : ''">{{ node.country_code || text('地区未知', 'Unknown region') }}</span>
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="pending || status.busy" @click="operate('country_probe/' + node.name)">{{ text('检测地区', 'Check region') }}</button>
             <button type="button" class="btn btn-secondary btn-sm" :disabled="pending || status.busy || !status.running" @click="operate('probe/' + node.name)">{{ text('检测', 'Test') }}</button>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="pending || status.busy" @click="operate((node.state === 'enabled' ? 'disable/' : 'recover/') + node.name)">{{ node.state === 'enabled' ? text('停用', 'Disable') : text('恢复', 'Recover') }}</button>
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="pending || status.busy || node.state === 'country_excluded'" @click="operate((node.state === 'enabled' ? 'disable/' : 'recover/') + node.name)">{{ node.state === 'country_excluded' ? text('地区已排除', 'Region excluded') : node.state === 'enabled' ? text('停用', 'Disable') : text('恢复', 'Recover') }}</button>
           </div>
         </div>
       </details>
@@ -35,10 +38,12 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { apiClient } from '@/api/client'
+import MihomoCountryFilter from './MihomoCountryFilter.vue'
+import type { CountryFilter, CountryNode } from './mihomoCountry'
 const { locale } = useI18n()
 const text = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en
 defineEmits<{ ready: [endpoint: string] }>()
-interface Status { installed: boolean; running: boolean; busy: boolean; supported: boolean; phase: string; error?: string; nodes: number; subscriptions: number; endpoint: string; use_once?: boolean; node_states?: { name: string; state: string }[] }
+interface Status { installed: boolean; running: boolean; busy: boolean; supported: boolean; phase: string; error?: string; nodes: number; subscriptions: number; endpoint: string; use_once?: boolean; node_states?: CountryNode[]; country_filter?: CountryFilter; country_codes?: string[] }
 const status = ref<Status>(); const subscriptions = ref(''); const append = ref(false); const pending = ref(false); const error = ref('')
 let timer: ReturnType<typeof setTimeout> | undefined
 let disposed = false
@@ -48,10 +53,10 @@ async function refresh() {
   catch { error.value = text('无法读取内核状态', 'Cannot read kernel status') }
   if (!disposed && status.value?.busy) timer = setTimeout(refresh, 1500)
 }
-async function operate(action: string) {
+async function operate(action: string, countryFilter?: CountryFilter) {
   pending.value = true; error.value = ''
   try {
-    status.value = (await apiClient.post<Status>('/admin/system/mihomo', { action, subscriptions: action === 'apply' ? subscriptions.value.split(/\r?\n/).filter(s => s.trim()) : [], append: append.value })).data
+    status.value = (await apiClient.post<Status>('/admin/system/mihomo', { action, subscriptions: action === 'apply' ? subscriptions.value.split(/\r?\n/).filter(s => s.trim()) : [], append: append.value, ...(action === 'country_filter' ? { country_filter: countryFilter } : {}) })).data
     if (action === 'apply') subscriptions.value = ''
     await refresh()
   } catch { error.value = text('操作未提交，请检查服务状态后重试', 'Operation was not accepted; check service status and retry') }

@@ -56,14 +56,14 @@ func Lease(ctx context.Context, proxy string) (func(bool), error) {
 	name := ""
 	for _, n := range snapshot.Nodes {
 		candidate, _ := n["name"].(string)
-		if candidate != "" && snapshot.Disabled[candidate] == "" {
+		if candidate != "" && snapshot.Disabled[candidate] == "" && countryAllowed(snapshot, candidate) {
 			name = candidate
 			break
 		}
 	}
 	if name == "" {
 		m.release()
-		return nil, errors.New("no unused proxy nodes; manually recover nodes")
+		return nil, errors.New("no eligible proxy nodes; check country rules or manually recover nodes")
 	}
 	retired := map[string]string{}
 	for key, value := range snapshot.Disabled {

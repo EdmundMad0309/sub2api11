@@ -6,6 +6,17 @@ vi.mock('@/api/client', () => ({ apiClient: { get, post } }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ locale: { value: 'zh' } }) }))
 const base = { installed: false, supported: true, running: false, busy: false, nodes: 0, subscriptions: 0, phase: 'not_installed', endpoint: 'http://127.0.0.1:3101' }
 describe('Mihomo settings', () => {
+  it('saves a country filter separately and preserves the subscription draft', async () => {
+    const state={...base,installed:true,running:true,nodes:1,country_filter:{mode:'off',codes:[],allow_unknown:false},country_codes:['HK','US'],node_states:[{name:'node-one',state:'enabled',country_code:'HK'}]}
+    get.mockResolvedValue({data:state});post.mockResolvedValue({data:state})
+    const wrapper=mount(MihomoSettings);await flushPromises()
+    await wrapper.get('textarea').setValue('https://example.org/unsaved')
+    await wrapper.findAll('button').find(b=>b.text().includes('快捷'))!.trigger('click')
+    await wrapper.findAll('button').find(b=>b.text()==='保存地区规则')!.trigger('click');await flushPromises()
+    expect(post).toHaveBeenCalledWith('/admin/system/mihomo',expect.objectContaining({action:'country_filter',subscriptions:[],country_filter:{mode:'exclude',codes:['HK'],allow_unknown:false}}))
+    expect(wrapper.get<HTMLTextAreaElement>('textarea').element.value).toBe('https://example.org/unsaved')
+    wrapper.unmount()
+  })
   it('explicitly enables use-once without replacing subscriptions', async () => {
     get.mockResolvedValue({data:{...base,installed:true,running:true,nodes:1,use_once:false,node_states:[{name:'node-one',state:'enabled'}]}})
     post.mockResolvedValue({data:{...base,installed:true,running:true,use_once:true}})
