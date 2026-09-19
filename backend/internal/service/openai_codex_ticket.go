@@ -505,6 +505,13 @@ func (s *OpenAIGatewayService) openAICodexTicketBlocksAccount(account *Account, 
 }
 
 func (s *OpenAIGatewayService) fireOpenAICodexTicketProbe(ctx context.Context, account *Account, token, model, proxyURL string, attemptTimeout time.Duration) (state string, status int, err error) {
+	// Queueing behind another account must not consume this probe's upstream
+	// timeout; every selected account receives a full bounded attempt.
+	releaseNode, leaseErr := mihomo.Lease(ctx, proxyURL)
+	if leaseErr != nil {
+		return "", 0, leaseErr
+	}
+	defer func() { releaseNode(err == nil && status == http.StatusOK) }()
 	attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
 	defer cancel()
 
@@ -529,11 +536,6 @@ func (s *OpenAIGatewayService) fireOpenAICodexTicketProbe(ctx context.Context, a
 	// Synthetic probes must use the dedicated no-reuse transport even when the
 	// production account is bound to a plugin. This also avoids reading pluginManager
 	// while handlers are still wiring it during gateway construction.
-	releaseNode, leaseErr := mihomo.Lease(attemptCtx, proxyURL)
-	if leaseErr != nil {
-		return "", 0, leaseErr
-	}
-	defer func() { releaseNode(err == nil && status == http.StatusOK) }()
 	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
 		return "", 0, err
