@@ -31,11 +31,19 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Configuration
-GITHUB_REPO="Wei-Shaw/sub2api"
+GITHUB_REPO="${SUB2API_GITHUB_REPO:-ranxi2001/sub2api}"
 INSTALL_DIR="/opt/sub2api"
 SERVICE_NAME="sub2api"
 SERVICE_USER="sub2api"
 CONFIG_DIR="/etc/sub2api"
+
+# Optional Codex ticket exit pool. The kernel can be installed automatically
+# when a provider subscription URL is supplied; the provider itself is never
+# created or purchased by this installer.
+MIHOMO_CODEX_SUBSCRIPTION_URL="${MIHOMO_CODEX_SUBSCRIPTION_URL:-}"
+MIHOMO_CODEX_USER_AGENT="${MIHOMO_CODEX_USER_AGENT:-clash.meta}"
+MIHOMO_CODEX_PORT="${MIHOMO_CODEX_PORT:-3101}"
+MIHOMO_CODEX_SECRET="${MIHOMO_CODEX_SECRET:-}"
 
 # Server configuration (will be set by user)
 SERVER_HOST="0.0.0.0"
@@ -668,6 +676,35 @@ download_and_extract() {
     print_success "$(msg 'binary_installed') $INSTALL_DIR/sub2api"
 }
 
+# Install or reuse the optional Mihomo sidecar used only for Codex ticket
+# harvesting. A subscription URL is required for a first install; without it
+# an existing healthy sidecar is left untouched and the normal app install
+# continues.
+configure_mihomo_codex() {
+    local installer="$INSTALL_DIR/install-mihomo-codex.sh"
+
+    if [ -z "$MIHOMO_CODEX_SUBSCRIPTION_URL" ]; then
+        if systemctl is-active --quiet mihomo-codex.service 2>/dev/null; then
+            print_info "Mihomo Codex sidecar is already active on 127.0.0.1:${MIHOMO_CODEX_PORT}"
+        else
+            print_info "Mihomo Codex sidecar not configured; set MIHOMO_CODEX_SUBSCRIPTION_URL to enable airport rotation"
+        fi
+        return 0
+    fi
+
+    if [ ! -f "$installer" ]; then
+        print_error "Mihomo installer missing from release package: $installer"
+        return 1
+    fi
+
+    print_info "Configuring Mihomo Codex ticket sidecar..."
+    MIHOMO_CODEX_SUBSCRIPTION_URL="$MIHOMO_CODEX_SUBSCRIPTION_URL" \
+        MIHOMO_CODEX_USER_AGENT="$MIHOMO_CODEX_USER_AGENT" \
+        MIHOMO_CODEX_PORT="$MIHOMO_CODEX_PORT" \
+        MIHOMO_CODEX_SECRET="$MIHOMO_CODEX_SECRET" \
+        bash "$installer"
+}
+
 # Create system user
 create_user() {
     if id "$SERVICE_USER" &>/dev/null; then
@@ -879,6 +916,7 @@ upgrade() {
     # Download and install new version
     get_latest_version
     download_and_extract
+    configure_mihomo_codex
 
     # Set permissions
     chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/sub2api"
@@ -941,6 +979,7 @@ install_version() {
 
     # Download and install
     download_and_extract
+    configure_mihomo_codex
 
     # Set permissions
     chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/sub2api"
@@ -1110,6 +1149,7 @@ main() {
                     configure_server
                     LATEST_VERSION=$(validate_version "$target_version")
                     download_and_extract
+                    configure_mihomo_codex
                     create_user
                     setup_directories
                     install_service
@@ -1124,6 +1164,7 @@ main() {
                 configure_server
                 get_latest_version
                 download_and_extract
+                configure_mihomo_codex
                 create_user
                 setup_directories
                 install_service
@@ -1204,6 +1245,7 @@ main() {
             configure_server
             LATEST_VERSION=$(validate_version "$target_version")
             download_and_extract
+            configure_mihomo_codex
             create_user
             setup_directories
             install_service
@@ -1218,6 +1260,7 @@ main() {
         configure_server
         get_latest_version
         download_and_extract
+        configure_mihomo_codex
         create_user
         setup_directories
         install_service
