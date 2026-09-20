@@ -26,7 +26,8 @@ func TestSubscriptionLabelsKeepNodeIdentityAndState(t *testing.T) {
 	nodes, names, err := m.fetchNodes(context.Background(), []string{server.URL})
 	require.NoError(t, err)
 	require.Len(t, nodes, 2)
-	id := nodes[0]["name"].(string)
+	id, ok := nodes[0]["name"].(string)
+	require.True(t, ok)
 	require.NotEqual(t, id, nodes[1]["name"])
 	require.Equal(t, label, names[id])
 	label = "🇯🇵 日本 东京 改名"
