@@ -1,5 +1,7 @@
 export default {
   harvestFlow: {
+    nodePolicy: '节点轮换',
+    nodePolicyHint: '由采票代理配置决定；此处不单独指定切换规则。',
     title: '打票全流程',
     description: '节点轮换 → 打票探测 → 292 形态校验 → 门票入库 → 账号选中',
     autoRefresh: '自动刷新',

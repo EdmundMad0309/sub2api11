@@ -7,9 +7,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"go.uber.org/zap"
 )
 
 // ManualHarvestRequest 定义手动打票的配置参数
@@ -19,7 +16,6 @@ type ManualHarvestRequest struct {
 	ProbeIntervalSeconds     int      `json:"probe_interval_seconds"`      // 对应检测周期，1~300s，默认 10
 	RateLimitCooldownSeconds int      `json:"rate_limit_cooldown_seconds"` // 对应 429 冷静，1~60s，默认 30
 	MaxAttempts              int      `json:"max_attempts"`                // 最大尝试次数，1~100，默认 20
-	NodeSwitchRule           string   `json:"node_switch_rule"`            // 312_or_2fail | every_request | 312_only | never
 	StopOnSuccess            bool     `json:"stop_on_success"`             // 命中合规票后是否自动终止
 }
 
@@ -91,6 +87,7 @@ type ManualHarvestProgress struct {
 	MaxAttempts int    `json:"max_attempts"`
 	Model       string `json:"model"`
 	Node        string `json:"node"`
+	NodeName    string `json:"node_name,omitempty"`
 	HTTPStatus  int    `json:"http_status"`
 	Length      int    `json:"length"`
 	Blocks      int    `json:"blocks"`
@@ -139,7 +136,6 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(
 	expectedBlocks := openAICodexTicketExpectedBlocks(account)
 	expectedLength := openAICodexTicketTargetLength(account, cfg)
 
-	consecutiveFails := 0
 	ticketsStored := 0
 
 	for attempt := 1; attempt <= req.MaxAttempts; attempt++ {
@@ -152,25 +148,9 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(
 				return ctx.Err()
 			}
 
-			// 检查换节点规则
-			shouldSwitchNode := false
-			switch req.NodeSwitchRule {
-			case "every_request":
-				shouldSwitchNode = true
-			case "312_or_2fail":
-				if consecutiveFails >= 2 {
-					shouldSwitchNode = true
-				}
-			}
-
-			if shouldSwitchNode {
-				logger.L().Info("manual_harvest: node switch triggered", zap.String("rule", req.NodeSwitchRule))
-				consecutiveFails = 0
-			}
-
 			token, _, err := s.GetAccessToken(ctx, account)
 			if err != nil || strings.TrimSpace(token) == "" {
-				consecutiveFails++
+
 				progressCallback(ManualHarvestProgress{
 					Attempt:     attempt,
 					MaxAttempts: req.MaxAttempts,
@@ -198,7 +178,7 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(
 
 			// 1. 遇到 429 限流
 			if status == http.StatusTooManyRequests {
-				consecutiveFails++
+
 				progressCallback(ManualHarvestProgress{
 					Attempt:     attempt,
 					MaxAttempts: req.MaxAttempts,
@@ -221,7 +201,7 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(
 
 			// 2. 命中降智标记 (312 / 356)
 			if status == http.StatusOK && (blocks == 11 || blocks == 13 || length == 312 || length == 356) {
-				consecutiveFails++
+
 				progressCallback(ManualHarvestProgress{
 					Attempt:     attempt,
 					MaxAttempts: req.MaxAttempts,
@@ -234,15 +214,10 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(
 					ExpectedBlk: expectedBlocks,
 					Result:      "miss_degraded",
 					Level:       "WARN",
-					Message:     fmt.Sprintf("拿到的是降智票据（%d 字节 / %d 块），已拒收 → 换节点重试", length, blocks),
+					Message:     fmt.Sprintf("拿到的是降智票据（%d 字节 / %d 块），已拒收 → 等待后重试", length, blocks),
 					Detail:      fmt.Sprintf("len=%d blk=%d · 合规应为 %d/%d", length, blocks, expectedLength, expectedBlocks),
 				})
 				recordCodexHarvestProbe(account, model, "probe_miss", currentNode, "degraded_state", status, length, blocks, expectedLength, expectedBlocks)
-
-				if req.NodeSwitchRule == "312_only" || req.NodeSwitchRule == "312_or_2fail" {
-					logger.L().Info("manual_harvest: node switch triggered by 312 degraded state")
-					consecutiveFails = 0
-				}
 
 				if err := sleepWithContext(ctx, time.Duration(req.ProbeIntervalSeconds)*time.Second); err != nil {
 					return err
@@ -252,7 +227,7 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(
 
 			// 3. 网络或其它协议错误
 			if perr != nil || status != http.StatusOK || shapeErr != nil {
-				consecutiveFails++
+
 				rawErr := "网络异常或未命中合规状态"
 				if perr != nil {
 					rawErr = perr.Error()
@@ -280,7 +255,7 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(
 
 			// 4. 命中合规门票 (292 / 332)
 			if blocks == expectedBlocks && length == expectedLength && strings.HasPrefix(state, openAICodexTicketStatePrefix) {
-				consecutiveFails = 0
+
 				now := time.Now()
 				ticket := &openAICodexTicket{
 					AccountID:  account.ID,
@@ -297,7 +272,20 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(
 					ticket.ExpiresAt = expires
 				}
 
-				s.storeOpenAICodexTicket(ctx, account, ticket)
+				if err := s.storeOpenAICodexTicketPersisted(ctx, account, ticket); err != nil {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					progressCallback(ManualHarvestProgress{
+						Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Node: currentNode,
+						Result: "persist_failed", Level: "ERROR", TicketsStored: ticketsStored,
+						Message: "已捕获门票，但持久化失败；当前仅保存在内存中，将继续尝试。",
+					})
+					if err := sleepWithContext(ctx, time.Duration(req.ProbeIntervalSeconds)*time.Second); err != nil {
+						return err
+					}
+					continue
+				}
 				s.openaiCodexTicketProbeCooldown.Delete(openAICodexTicketKey(account.ID, model))
 				recordCodexHarvestProbe(account, model, "success", currentNode, "", status, length, blocks, expectedLength, expectedBlocks)
 				ticketsStored++
@@ -376,27 +364,27 @@ func describeCodexProbeFailure(rawErr string, status int, model, node string) (m
 	case status == http.StatusUnauthorized:
 		return "账号登录凭证已失效，需要重新登录该账号", "ERROR", detail
 	case status == http.StatusForbidden:
-		return "上游拒绝了本次请求（账号或模型被限制）→ 换节点重试", "WARN", detail
+		return "上游拒绝了本次请求（账号或模型被限制）→ 等待后重试", "WARN", detail
 	case strings.Contains(lower, "invalid probe event"):
-		return "节点返回的内容不是有效数据，可能被拦截了 → 换节点重试", "WARN", detail
+		return "节点返回的内容不是有效数据，可能被拦截了 → 等待后重试", "WARN", detail
 	case strings.Contains(lower, "probe response failed"):
-		return "上游明确返回失败（账号或模型被限制）→ 换节点重试", "WARN", detail
+		return "上游明确返回失败（账号或模型被限制）→ 等待后重试", "WARN", detail
 	case strings.Contains(lower, "invalid probe completion"):
-		return "上游回复不完整就中断了 → 换节点重试", "WARN", detail
+		return "上游回复不完整就中断了 → 等待后重试", "WARN", detail
 	case strings.Contains(lower, "invalid probe stream"):
-		return "响应数据流损坏，读不下去 → 换节点重试", "WARN", detail
+		return "响应数据流损坏，读不下去 → 等待后重试", "WARN", detail
 	case strings.Contains(lower, "unterminated probe event"):
-		return "响应被中途截断（连接被掐断）→ 换节点重试", "WARN", detail
+		return "响应被中途截断（连接被掐断）→ 等待后重试", "WARN", detail
 	case strings.Contains(lower, "probe did not complete successfully"):
-		return "上游没给出完整结果就结束了 → 换节点重试", "WARN", detail
+		return "上游没给出完整结果就结束了 → 等待后重试", "WARN", detail
 	case strings.Contains(lower, "deadline exceeded"), strings.Contains(lower, "client.timeout"),
 		strings.Contains(lower, "timeout"), strings.Contains(lower, "timed out"):
-		return "节点响应超时（超过设定时间没有回）→ 换节点重试", "WARN", detail
+		return "节点响应超时（超过设定时间没有回）→ 等待后重试", "WARN", detail
 	case strings.Contains(lower, "no such host"), strings.Contains(lower, "connection refused"):
-		return "出口节点连不上 → 换节点重试", "WARN", detail
+		return "出口节点连不上 → 等待后重试", "WARN", detail
 	case strings.Contains(lower, "eof"), strings.Contains(lower, "connection reset"),
 		strings.Contains(lower, "connection aborted"), strings.Contains(lower, "broken pipe"):
-		return "节点连接被中断 → 换节点重试", "WARN", detail
+		return "节点连接被中断 → 等待后重试", "WARN", detail
 	}
-	return "本次探针没有拿到合规门票 → 换节点重试", "WARN", detail
+	return "本次探针没有拿到合规门票 → 等待后重试", "WARN", detail
 }

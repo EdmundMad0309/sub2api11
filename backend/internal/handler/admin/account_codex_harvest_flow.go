@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/Wei-Shaw/sub2api/internal/mihomo"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -153,6 +154,7 @@ func (h *AccountHandler) ManualCodexHarvest(c *gin.Context) {
 	}
 
 	writeProgress := func(p service.ManualHarvestProgress) {
+		p.NodeName = mihomo.NodeDisplayName(p.Node)
 		data, err := json.Marshal(p)
 		if err != nil {
 			return

@@ -8,8 +8,25 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/mihomo"
 	"github.com/stretchr/testify/require"
 )
+
+func TestHarvestFlowResolvesSubscriptionNameWithoutChangingEventID(t *testing.T) {
+	resetCodexHarvestFlow()
+	t.Cleanup(resetCodexHarvestFlow)
+	dir := t.TempDir()
+	t.Setenv("DATA_DIR", dir)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"node_names":{"node-test":"日本 东京 01"}}`), 0600))
+	m := mihomo.New(dir)
+	t.Cleanup(m.Close)
+	recordCodexHarvestNode("node-test", "LoadBalance", 1)
+	snapshot := BuildCodexHarvestFlow(context.Background(), &config.Config{}, nil, nil)
+	require.Equal(t, "node-test", snapshot.Events[0].Node)
+	require.Equal(t, "日本 东京 01", snapshot.Events[0].NodeName)
+	require.Equal(t, "node-test", snapshot.Stages[0].Node)
+	require.Equal(t, "日本 东京 01", snapshot.Stages[0].NodeName)
+}
 
 func TestCodexHarvestFlowRecordsProbeTicketAndSelect(t *testing.T) {
 	resetCodexHarvestFlow()

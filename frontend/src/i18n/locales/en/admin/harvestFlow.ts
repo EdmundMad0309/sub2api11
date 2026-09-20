@@ -1,5 +1,7 @@
 export default {
   harvestFlow: {
+    nodePolicy: 'Node rotation',
+    nodePolicyHint: 'Controlled by the harvest proxy configuration; this task does not override rotation.',
     title: 'Ticket Harvest Flow',
     description: 'Node rotate → harvest probe → 292 shape check → ticket store → account select',
     autoRefresh: 'Auto refresh',

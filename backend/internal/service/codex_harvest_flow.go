@@ -37,6 +37,7 @@ type CodexHarvestFlowEvent struct {
 	AccountName    string    `json:"account_name,omitempty"`
 	Model          string    `json:"model,omitempty"`
 	Node           string    `json:"node,omitempty"`
+	NodeName       string    `json:"node_name,omitempty"`
 	HTTPStatus     int       `json:"http_status,omitempty"`
 	Length         int       `json:"length,omitempty"`
 	Blocks         int       `json:"blocks,omitempty"`
@@ -55,6 +56,7 @@ type CodexHarvestFlowStage struct {
 	Detail         string     `json:"detail,omitempty"`
 	At             *time.Time `json:"at,omitempty"`
 	Node           string     `json:"node,omitempty"`
+	NodeName       string     `json:"node_name,omitempty"`
 	Model          string     `json:"model,omitempty"`
 	HTTPStatus     int        `json:"http_status,omitempty"`
 	Length         int        `json:"length,omitempty"`
@@ -108,6 +110,7 @@ type CodexHarvestFlowSidecar struct {
 	Group      string     `json:"group,omitempty"`
 	Type       string     `json:"type,omitempty"`
 	Now        string     `json:"now,omitempty"`
+	NowName    string     `json:"now_name,omitempty"`
 	AllCount   int        `json:"all_count,omitempty"`
 	Error      string     `json:"error,omitempty"`
 	ObservedAt *time.Time `json:"observed_at,omitempty"`
@@ -714,6 +717,13 @@ func BuildCodexHarvestFlow(ctx context.Context, cfg *config.Config, settings *Se
 		}
 	}
 	snapshot.Stages = buildCodexHarvestFlowStages(snapshot)
+	snapshot.Sidecar.NowName = mihomo.NodeDisplayName(snapshot.Sidecar.Now)
+	for i := range snapshot.Events {
+		snapshot.Events[i].NodeName = mihomo.NodeDisplayName(snapshot.Events[i].Node)
+	}
+	for i := range snapshot.Stages {
+		snapshot.Stages[i].NodeName = mihomo.NodeDisplayName(snapshot.Stages[i].Node)
+	}
 	snapshot.Events = reverseCodexHarvestFlowEvents(snapshot.Events)
 	return snapshot
 }

@@ -1112,6 +1112,7 @@ export interface CodexHarvestFlowStage {
   detail?: string
   at?: string
   node?: string
+  node_name?: string
   model?: string
   http_status?: number
   length?: number
@@ -1129,6 +1130,7 @@ export interface CodexHarvestFlowEvent {
   account_name?: string
   model?: string
   node?: string
+  node_name?: string
   http_status?: number
   length?: number
   blocks?: number
@@ -1166,6 +1168,7 @@ export interface CodexHarvestFlowSnapshot {
     group?: string
     type?: string
     now?: string
+    now_name?: string
     all_count?: number
     error?: string
     observed_at?: string
@@ -1220,7 +1223,6 @@ export interface ManualHarvestRequestPayload {
   probe_interval_seconds: number
   rate_limit_cooldown_seconds: number
   max_attempts: number
-  node_switch_rule: string
   stop_on_success: boolean
 }
 
