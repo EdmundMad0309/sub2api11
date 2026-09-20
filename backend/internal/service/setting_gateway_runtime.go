@@ -286,7 +286,8 @@ func (s *SettingService) GetOpenAICodexTicketEnabled(ctx context.Context, fallba
 		}
 	}
 	resultCh := s.openAICodexTicketEnabledSF.DoChan(SettingKeyOpenAICodexTicketEnabled, func() (any, error) {
-		if cached, ok := s.openAICodexTicketEnabledCache.Load().(*cachedOpenAICodexTicketEnabled); ok && cached != nil {
+		snapshot := s.openAICodexTicketEnabledCache.Load()
+		if cached, ok := snapshot.(*cachedOpenAICodexTicketEnabled); ok && cached != nil {
 			if time.Now().UnixNano() < cached.expiresAt {
 				return cached.value, nil
 			}
@@ -307,7 +308,9 @@ func (s *SettingService) GetOpenAICodexTicketEnabled(ctx context.Context, fallba
 		if err == nil && strings.TrimSpace(value) != "" {
 			enabled = value == "true"
 		}
-		s.openAICodexTicketEnabledCache.Store(&cachedOpenAICodexTicketEnabled{
+		// An in-flight pre-write read must not overwrite invalidation or a
+		// newer value and make the freshly awakened harvester see stale state.
+		s.openAICodexTicketEnabledCache.CompareAndSwap(snapshot, &cachedOpenAICodexTicketEnabled{
 			value:     enabled,
 			expiresAt: time.Now().Add(openAICodexTicketEnabledCacheTTL).UnixNano(),
 		})
@@ -353,6 +356,7 @@ func (s *SettingService) GetOpenAICodexTicketFailClosed(ctx context.Context) boo
 		return cached.value
 	}
 	resultCh := s.openAICodexTicketFailClosedSF.DoChan(SettingKeyOpenAICodexTicketFailClosed, func() (any, error) {
+		snapshot := s.openAICodexTicketFailClosedCache.Load()
 		dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		value, err := s.settingRepo.GetValue(dbCtx, SettingKeyOpenAICodexTicketFailClosed)
@@ -366,7 +370,7 @@ func (s *SettingService) GetOpenAICodexTicketFailClosed(ctx context.Context) boo
 			return false, nil
 		}
 		failClosed := strings.TrimSpace(value) == "true"
-		s.openAICodexTicketFailClosedCache.Store(&cachedOpenAICodexTicketFailClosed{
+		s.openAICodexTicketFailClosedCache.CompareAndSwap(snapshot, &cachedOpenAICodexTicketFailClosed{
 			value:     failClosed,
 			expiresAt: time.Now().Add(openAICodexTicketFailClosedCacheTTL).UnixNano(),
 		})
@@ -420,11 +424,12 @@ func (s *SettingService) GetOpenAICodexTicketModels(ctx context.Context, fallbac
 		return fallback
 	}
 	resultCh := s.openAICodexTicketModelsSF.DoChan(SettingKeyOpenAICodexTicketModels, func() (any, error) {
+		snapshot := s.openAICodexTicketModelsCache.Load()
 		dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		value, err := s.settingRepo.GetValue(dbCtx, SettingKeyOpenAICodexTicketModels)
 		if errors.Is(err, ErrSettingNotFound) {
-			s.openAICodexTicketModelsCache.Store(&cachedOpenAICodexTicketModels{expiresAt: time.Now().Add(openAICodexTicketModelsCacheTTL).UnixNano()})
+			s.openAICodexTicketModelsCache.CompareAndSwap(snapshot, &cachedOpenAICodexTicketModels{expiresAt: time.Now().Add(openAICodexTicketModelsCacheTTL).UnixNano()})
 			return nil, nil
 		}
 		if err != nil {
@@ -435,7 +440,7 @@ func (s *SettingService) GetOpenAICodexTicketModels(ctx context.Context, fallbac
 			return nil, err
 		}
 		models = NormalizeOpenAICodexTicketModels(models)
-		s.openAICodexTicketModelsCache.Store(&cachedOpenAICodexTicketModels{models: models, configured: true, expiresAt: time.Now().Add(openAICodexTicketModelsCacheTTL).UnixNano()})
+		s.openAICodexTicketModelsCache.CompareAndSwap(snapshot, &cachedOpenAICodexTicketModels{models: models, configured: true, expiresAt: time.Now().Add(openAICodexTicketModelsCacheTTL).UnixNano()})
 		return models, nil
 	})
 	select {
@@ -487,7 +492,8 @@ func (s *SettingService) GetOpenAICodexTicketHarvestProxyURL(ctx context.Context
 		}
 	}
 	resultCh := s.openAICodexTicketHarvestProxySF.DoChan(SettingKeyOpenAICodexTicketHarvestProxyURL, func() (any, error) {
-		if cached, ok := s.openAICodexTicketHarvestProxyCache.Load().(*cachedOpenAICodexTicketHarvestProxy); ok && cached != nil {
+		snapshot := s.openAICodexTicketHarvestProxyCache.Load()
+		if cached, ok := snapshot.(*cachedOpenAICodexTicketHarvestProxy); ok && cached != nil {
 			if time.Now().UnixNano() < cached.expiresAt {
 				return cached.value, nil
 			}
@@ -503,14 +509,14 @@ func (s *SettingService) GetOpenAICodexTicketHarvestProxyURL(ctx context.Context
 			if cached, ok := s.openAICodexTicketHarvestProxyCache.Load().(*cachedOpenAICodexTicketHarvestProxy); ok && cached != nil {
 				value = cached.value
 			}
-			s.openAICodexTicketHarvestProxyCache.Store(&cachedOpenAICodexTicketHarvestProxy{
+			s.openAICodexTicketHarvestProxyCache.CompareAndSwap(snapshot, &cachedOpenAICodexTicketHarvestProxy{
 				value:     value,
 				expiresAt: time.Now().Add(time.Second).UnixNano(),
 			})
 			return value, nil
 		}
 		value = strings.TrimSpace(value)
-		s.openAICodexTicketHarvestProxyCache.Store(&cachedOpenAICodexTicketHarvestProxy{
+		s.openAICodexTicketHarvestProxyCache.CompareAndSwap(snapshot, &cachedOpenAICodexTicketHarvestProxy{
 			value:     value,
 			expiresAt: time.Now().Add(openAICodexTicketHarvestProxyCacheTTL).UnixNano(),
 		})

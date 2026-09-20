@@ -803,15 +803,36 @@ func (s *OpenAIGatewayService) StopOpenAICodexTicketHarvester() {
 	}
 }
 
+// Bound admin-triggered rounds without delaying a wake until the normal probe
+// interval. This does not change per-account cooldowns or probe limits.
+const openAICodexTicketWakeMinInterval = time.Second
+
 func (s *OpenAIGatewayService) openAICodexTicketHarvestLoop(ctx context.Context) {
 	timer := time.NewTimer(0)
 	defer timer.Stop()
+	wake := s.settingService.codexHarvestWakeups()
+	var lastRound time.Time
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-wake:
+			// Execute all work on this single loop. A buffered wake received
+			// during a probe is handled after that round, never concurrently.
+			delay := time.Until(lastRound.Add(openAICodexTicketWakeMinInterval))
+			if delay < 0 {
+				delay = 0
+			}
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(delay)
 		case <-timer.C:
 			s.refreshOpenAICodexTickets(ctx)
+			lastRound = time.Now()
 			timer.Reset(time.Duration(s.openAICodexTicketConfig().HarvestProbeIntervalSeconds) * time.Second)
 		}
 	}
