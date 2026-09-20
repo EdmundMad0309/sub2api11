@@ -73,6 +73,14 @@ type CodexHarvestFlowAccount struct {
 	Tickets      []OpenAICodexTicketStatus `json:"tickets"`
 	ReadyCount   int                       `json:"ready_count"`
 	BlockedCount int                       `json:"blocked_count"`
+
+	// Availability 当前可用性（口径见 ResolveCodexAccountAvailability，与调度 SQL 一致）。
+	// 取值：available / rate_limited / overload / temp_unschedulable / error / disabled / expired
+	Availability string `json:"availability"`
+	// RecoverAt 被时间窗挡住时预计恢复时间；可用或永久性不可用时为 nil。
+	RecoverAt *time.Time `json:"recover_at,omitempty"`
+	// TempUnschedulableReason 临时不可调度的原因原文（仅排查展示用）。
+	TempUnschedulableReason string `json:"temp_unschedulable_reason,omitempty"`
 }
 
 type CodexHarvestFlowHarvest struct {
@@ -88,6 +96,9 @@ type CodexHarvestFlowHarvest struct {
 	CooldownSec       int      `json:"cooldown_seconds"`
 	MaxProbesPerRound int      `json:"max_probes_per_round"`
 	HarvestProxy      string   `json:"harvest_proxy,omitempty"`
+	// 以下两项此前未回传，导致前端无法回读、只能硬编码默认值（永远显示 25/600）。
+	AttemptTimeoutSec int `json:"attempt_timeout_seconds"`
+	RefreshBeforeSec  int `json:"refresh_before_seconds"`
 }
 
 type CodexHarvestFlowSidecar struct {
@@ -595,13 +606,13 @@ func BuildCodexHarvestFlow(ctx context.Context, cfg *config.Config, settings *Se
 		ticketCfg.TargetLength = 292
 	}
 	if ticketCfg.HarvestProbeIntervalSeconds < 30 {
-		ticketCfg.HarvestProbeIntervalSeconds = 180
+		ticketCfg.HarvestProbeIntervalSeconds = 60
 	}
 	if ticketCfg.HarvestCooldownSeconds <= 0 {
-		ticketCfg.HarvestCooldownSeconds = 180
+		ticketCfg.HarvestCooldownSeconds = 60
 	}
 	if ticketCfg.MaxProbesPerRound <= 0 {
-		ticketCfg.MaxProbesPerRound = 6
+		ticketCfg.MaxProbesPerRound = 10
 	}
 	if len(ticketCfg.Models) == 0 {
 		ticketCfg.Models = []string{openAICodexTicketDefaultModel, openAICodexTicketDefaultSolModel}
@@ -615,6 +626,11 @@ func BuildCodexHarvestFlow(ctx context.Context, cfg *config.Config, settings *Se
 		enabled = settings.GetOpenAICodexTicketEnabled(ctx, enabled)
 		failClosed = settings.GetOpenAICodexTicketFailClosed(ctx)
 		ticketCfg.Models = settings.GetOpenAICodexTicketModels(ctx, ticketCfg.Models)
+		ticketCfg.HarvestProbeIntervalSeconds = settings.GetOpenAICodexTicketProbeIntervalSeconds(ctx, ticketCfg.HarvestProbeIntervalSeconds)
+		ticketCfg.HarvestCooldownSeconds = settings.GetOpenAICodexTicketCooldownSeconds(ctx, ticketCfg.HarvestCooldownSeconds)
+		ticketCfg.MaxProbesPerRound = settings.GetOpenAICodexTicketMaxProbesPerRound(ctx, ticketCfg.MaxProbesPerRound)
+		ticketCfg.HarvestAttemptTimeoutSeconds = settings.GetOpenAICodexTicketAttemptTimeoutSeconds(ctx, ticketCfg.HarvestAttemptTimeoutSeconds)
+		ticketCfg.RefreshBeforeSeconds = settings.GetOpenAICodexTicketRefreshBeforeSeconds(ctx, ticketCfg.RefreshBeforeSeconds)
 		if proxy := settings.GetOpenAICodexTicketHarvestProxyURL(ctx); proxy != "" {
 			harvestProxy = proxy
 		}
@@ -640,6 +656,8 @@ func BuildCodexHarvestFlow(ctx context.Context, cfg *config.Config, settings *Se
 			CooldownSec:       ticketCfg.HarvestCooldownSeconds,
 			MaxProbesPerRound: ticketCfg.MaxProbesPerRound,
 			HarvestProxy:      MaskProxyURL(harvestProxy),
+			AttemptTimeoutSec: ticketCfg.HarvestAttemptTimeoutSeconds,
+			RefreshBeforeSec:  ticketCfg.RefreshBeforeSeconds,
 		},
 		Sidecar: observeCodexHarvestSidecar(ctx),
 		Events:  listCodexHarvestFlowEvents(),
@@ -651,6 +669,7 @@ func BuildCodexHarvestFlow(ctx context.Context, cfg *config.Config, settings *Se
 		if !isOpenAICodexTicketAccount(&account) {
 			continue
 		}
+		availability, recoverAt := ResolveCodexAccountAvailability(&account, now)
 		item := CodexHarvestFlowAccount{
 			ID:          account.ID,
 			Name:        account.Name,
@@ -659,6 +678,10 @@ func BuildCodexHarvestFlow(ctx context.Context, cfg *config.Config, settings *Se
 			SkipHarvest: openAICodexSkipHarvest(&account),
 			InScope:     !openAICodexSkipHarvest(&account) && scope.includes(&account),
 			Tickets:     OpenAICodexTicketStatuses(&account, ticketCfg, now),
+
+			Availability:            availability,
+			RecoverAt:               recoverAt,
+			TempUnschedulableReason: account.TempUnschedulableReason,
 		}
 		for _, ticket := range item.Tickets {
 			if ticket.Ready {
