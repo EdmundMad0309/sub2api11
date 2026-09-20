@@ -67,8 +67,9 @@ func PrepareLegacy(ctx context.Context, dataDir, configPath, cachePath, binaryPa
 	for i, node := range nodes.Proxies {
 		name, _ := node["name"].(string)
 		delete(node, "dialer-proxy")
-		node["name"] = fmt.Sprintf("migrated-node-%d", i+1)
-		labels[node["name"].(string)] = sanitizeNodeDisplayName(name)
+		nodeID := fmt.Sprintf("migrated-node-%d", i+1)
+		node["name"] = nodeID
+		labels[nodeID] = sanitizeNodeDisplayName(name)
 	}
 	binary, err := readBoundedFile(binaryPath, 192<<20)
 	if err != nil {

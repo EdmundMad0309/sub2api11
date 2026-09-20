@@ -525,8 +525,9 @@ func (m *Manager) fetchNodes(ctx context.Context, urls []string) ([]map[string]a
 				continue
 			}
 			seen[id] = true
-			node["name"] = "node-" + id[:16]
-			names[node["name"].(string)] = sanitizeNodeDisplayName(displayName)
+			nodeID := "node-" + id[:16]
+			node["name"] = nodeID
+			names[nodeID] = sanitizeNodeDisplayName(displayName)
 			nodes = append(nodes, node)
 			if len(nodes) > 1000 {
 				return nil, nil, errors.New("at most 1000 nodes")
