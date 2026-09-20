@@ -104,7 +104,7 @@
         <div class="grid grid-cols-1 gap-6 xl:grid-cols-5">
           <div class="card p-5 xl:col-span-2">
             <h2 class="mb-4 text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.harvestFlow.accounts') }}</h2>
-            <div v-if="!snapshot.accounts.length" class="text-sm text-gray-500">{{ t('admin.harvestFlow.noAccounts') }}</div>
+            <div v-if="!snapshot.accounts?.length" class="text-sm text-gray-500">{{ t('admin.harvestFlow.noAccounts') }}</div>
             <div v-else class="space-y-3">
               <div v-for="account in snapshot.accounts" :key="account.id" class="rounded-2xl border border-gray-100 p-4 dark:border-dark-700">
                 <div class="mb-3 flex items-center justify-between gap-2">
@@ -126,7 +126,7 @@
                     >
                       {{ account.skip_harvest ? t('admin.harvestFlow.enableHarvest') : t('admin.harvestFlow.skipHarvest') }}
                     </button>
-                    <span class="text-xs text-gray-400">{{ account.ready_count }}/{{ account.tickets.length }}</span>
+                    <span class="text-xs text-gray-400">{{ account.ready_count }}/{{ account.tickets?.length ?? 0 }}</span>
                   </div>
                 </div>
                 <div class="flex flex-wrap gap-2">
@@ -168,7 +168,7 @@
                 </button>
               </div>
             </div>
-            <div v-if="!snapshot.events.length" class="text-sm text-gray-500">{{ t('admin.harvestFlow.noEvents') }}</div>
+            <div v-if="!snapshot.events?.length" class="text-sm text-gray-500">{{ t('admin.harvestFlow.noEvents') }}</div>
             <ol v-else class="max-h-[560px] space-y-2 overflow-auto pr-1">
               <li
                 v-for="event in filteredEvents"
