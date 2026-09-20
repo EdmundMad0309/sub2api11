@@ -26,7 +26,7 @@ type preRequestRoundTripper func(*http.Request) (*http.Response, error)
 func (f preRequestRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestOpenAIPreRequestRetrySafety(t *testing.T) {
-	for _, name := range []string{"transient", "persistent", "no_trace", "got_conn", "header_field", "wrote_headers", "wrote_request", "response_byte", "certificate", "cancelled", "cancel_during_backoff", "direct", "grok", "default", "no_getbody", "getbody_error", "429", "502", "503", "redirect_already_sent"} {
+	for _, name := range []string{"transient", "persistent", "no_trace", "got_conn", "header_field", "wrote_headers", "wrote_request", "response_byte", "certificate", "cancelled", "cancel_during_backoff", "direct", "grok", "default", "harvest", "no_getbody", "getbody_error", "429", "502", "503", "redirect_already_sent"} {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -43,6 +43,11 @@ func TestOpenAIPreRequestRetrySafety(t *testing.T) {
 			}
 			if name == "default" {
 				profile = service.HTTPUpstreamProfileDefault
+			}
+			if name == "harvest" {
+				// The fork's independent ticket probes must keep their own
+				// transport/lifecycle rather than retry as business traffic.
+				profile = service.HTTPUpstreamProfileOpenAIHarvest
 			}
 			if name == "no_getbody" {
 				req.GetBody = nil
