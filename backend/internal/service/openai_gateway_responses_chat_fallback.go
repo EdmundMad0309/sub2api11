@@ -59,6 +59,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	}
 
 	clientStream := responsesReq.Stream
+	// Codex omits reasoning.summary when configured with summary=none.
+	// Only an explicit summary request enables plaintext summaries.
+	suppressSummary := responsesReq.Reasoning == nil || strings.TrimSpace(responsesReq.Reasoning.Summary) == "" || strings.EqualFold(strings.TrimSpace(responsesReq.Reasoning.Summary), "none")
 	// custom 工具（如 codex 的 exec）降级为 function 工具转发，回程需按名字还原为
 	// custom_tool_call 项，先记下名字集合；tool_search 工具同理，回程还原为
 	// tool_search_call 项；namespace 子工具（如 MCP 工具）摊平转发，回程按映射还原
@@ -155,9 +158,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	}
 
 	if clientStream {
-		return s.streamChatCompletionsAsResponses(c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		return s.streamChatCompletionsAsResponses(c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, suppressSummary, startTime)
 	}
-	return s.bufferChatCompletionsAsResponses(c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime, compact)
+	return s.bufferChatCompletionsAsResponses(c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, suppressSummary, startTime, compact)
 }
 
 func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
@@ -172,6 +175,7 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 	upstreamModel string,
 	reasoningEffort *string,
 	serviceTier *string,
+	suppressSummary bool,
 	startTime time.Time,
 	compact bool,
 ) (*OpenAIForwardResult, error) {
@@ -181,12 +185,23 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 		return nil, err
 	}
 	responsesResp := apicompat.ChatCompletionsResponseToResponses(ccResp, originalModel, customTools, functionTools, toolSearch, namespaceTools)
+	recordChatReasoningOnlyFailure(c, requestID, upstreamModel, responsesResp)
 	s.cacheReasoningItemsFromOutput(responsesResp.Output)
+	if suppressSummary {
+		responsesResp.Output = withoutReasoningSummaries(responsesResp.Output)
+	}
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
-	if compact {
+	if compact && responsesResp.Status == "failed" {
+		// A failed summary must not become a successful empty compaction item.
+		sse, err := apicompat.ResponsesEventToSSE(apicompat.ResponsesStreamEvent{Type: "response.failed", SequenceNumber: 1, Response: responsesResp})
+		if err != nil {
+			return nil, fmt.Errorf("marshal compact failure: %w", err)
+		}
+		c.Data(http.StatusOK, "text/event-stream", []byte(sse+"data: [DONE]\n\n"))
+	} else if compact {
 		summary := compactSummaryTextFromResponses(responsesResp.Output)
 		logger.L().Info("openai responses chat fallback: deepseek compact synthesizing",
 			zap.Int("upstream_output_items", len(responsesResp.Output)),
@@ -241,6 +256,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	upstreamModel string,
 	reasoningEffort *string,
 	serviceTier *string,
+	suppressSummary bool,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
@@ -254,6 +270,11 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	clientDisconnected := false
 
 	writeEvents := func(events []apicompat.ResponsesStreamEvent) {
+		// Cache the original completed reasoning items before this write boundary;
+		// clients can return the opaque item ID for DeepSeek tool-history replay.
+		if suppressSummary {
+			events = withoutReasoningSummaryEvents(events)
+		}
 		if clientDisconnected || len(events) == 0 {
 			return
 		}
@@ -319,6 +340,11 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	}
 
 	finalEvents := apicompat.FinalizeChatCompletionsResponsesStream(state)
+	for _, event := range finalEvents {
+		if event.Type == "response.failed" {
+			recordChatReasoningOnlyFailure(c, requestID, upstreamModel, event.Response)
+		}
+	}
 	s.cacheReasoningItemsFromEvents(finalEvents)
 	writeEvents(finalEvents)
 	if !clientDisconnected {
@@ -360,6 +386,16 @@ func chatChunkStartsResponsesOutput(chunk *apicompat.ChatCompletionsChunk) bool 
 		}
 	}
 	return false
+}
+
+func recordChatReasoningOnlyFailure(c *gin.Context, requestID, model string, response *apicompat.ResponsesResponse) {
+	if response == nil || response.Error == nil || response.Error.Code != "upstream_reasoning_only" {
+		return
+	}
+	setOpsUpstreamError(c, http.StatusOK, response.Error.Code, response.Error.Message)
+	logger.L().Warn("openai.responses_reasoning_only",
+		zap.String("request_id", requestID), zap.String("upstream_model", model),
+		zap.String("error_code", response.Error.Code))
 }
 
 // responsesReasoningCacheTTL 是 reasoning 缓存（按 reasoning item id）的过期时间。
