@@ -22,11 +22,19 @@ import (
 func TestChatFallbackReasoningVisibilityAndUsage(t *testing.T) {
 	const reasoning = "private upstream planning"
 	for _, stream := range []bool{false, true} {
-		for _, summary := range []string{"none", "auto"} {
+		for _, summary := range []string{"none", "auto", "omitted", "null", "absent-reasoning"} {
 			for _, outcome := range []string{"answer", "tool", "reasoning-only"} {
 				t.Run(fmt.Sprintf("stream=%t/summary=%s/%s", stream, summary, outcome), func(t *testing.T) {
 					gin.SetMode(gin.TestMode)
 					body := []byte(fmt.Sprintf(`{"model":"deepseek-reasoner","input":"hello","stream":%t,"reasoning":{"effort":"high","summary":%q},"tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}]}`, stream, summary))
+					switch summary {
+					case "omitted":
+						body = bytes.ReplaceAll(body, []byte(`,"summary":"omitted"`), nil)
+					case "null":
+						body = bytes.ReplaceAll(body, []byte(`"summary":"null"`), []byte(`"summary":null`))
+					case "absent-reasoning":
+						body = bytes.ReplaceAll(body, []byte(`,"reasoning":{"effort":"high","summary":"absent-reasoning"}`), nil)
+					}
 					message := map[string]any{"role": "assistant", "reasoning_content": reasoning}
 					if outcome == "answer" {
 						message["content"] = "final answer"
@@ -60,7 +68,7 @@ func TestChatFallbackReasoningVisibilityAndUsage(t *testing.T) {
 					require.NotNil(t, result)
 					require.Len(t, upstream.requests, 1)
 					wire := recorder.Body.String()
-					if summary == "none" {
+					if summary != "auto" {
 						require.NotContains(t, wire, reasoning)
 						require.NotContains(t, wire, "response.reasoning_summary_")
 					} else {
@@ -104,7 +112,7 @@ func TestChatFallbackReasoningVisibilityAndUsage(t *testing.T) {
 					for _, item := range response.Output {
 						if item.Type == "reasoning" {
 							require.Equal(t, reasoning, sets[item.ID], "final item ID must match cached and streamed ID")
-							if summary == "none" {
+							if summary != "auto" {
 								require.Empty(t, item.Summary)
 							}
 						}
@@ -115,7 +123,7 @@ func TestChatFallbackReasoningVisibilityAndUsage(t *testing.T) {
 						}
 						data, err := json.Marshal(item)
 						require.NoError(t, err)
-						if item.Type == "reasoning" && summary == "none" {
+						if item.Type == "reasoning" && summary != "auto" {
 							require.Equal(t, "[]", gjson.GetBytes(data, "summary").Raw)
 						}
 						history = append(history, data)
