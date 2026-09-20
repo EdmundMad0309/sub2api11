@@ -74,14 +74,21 @@
         <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <div class="card p-4">
             <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.harvestFlow.sidecar') }}</p>
-            <p class="mt-1 text-sm font-semibold" :class="snapshot.sidecar.reachable ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'">
+            <p v-if="snapshot.sidecar.mode === 'external'" class="mt-1 text-sm font-semibold text-gray-600 dark:text-gray-300">
+              {{ t('admin.harvestFlow.externalProxy') }}
+            </p>
+            <p v-else-if="snapshot.sidecar.mode === 'unconfigured'" class="mt-1 text-sm text-gray-500">{{ t('admin.harvestFlow.proxyUnconfigured') }}</p>
+            <p v-else class="mt-1 text-sm font-semibold" :class="snapshot.sidecar.reachable ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'">
               {{ snapshot.sidecar.reachable ? t('admin.harvestFlow.sidecarReachable') : t('admin.harvestFlow.sidecarOffline') }}
             </p>
-            <p class="mt-2 break-all font-mono text-xs text-gray-500 dark:text-gray-400">
-              {{ snapshot.sidecar.now || (snapshot.sidecar.reachable ? t('admin.harvestFlow.poolOnline', { n: snapshot.sidecar.all_count || 0 }) : t('admin.harvestFlow.waitingSidecar')) }}
-            </p>
-            <p class="mt-1 text-xs text-gray-400">{{ t('admin.harvestFlow.nodePool') }} {{ snapshot.sidecar.all_count || 0 }} · {{ snapshot.sidecar.group || 'CODEX-ROTATE' }}</p>
-            <p v-if="snapshot.sidecar.error" class="mt-1 text-xs text-rose-500">{{ snapshot.sidecar.error }}</p>
+            <p v-if="snapshot.sidecar.mode === 'external'" class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.harvestFlow.externalProxyHint') }}</p>
+            <template v-else-if="snapshot.sidecar.mode !== 'unconfigured'">
+              <p class="mt-2 break-all font-mono text-xs text-gray-500 dark:text-gray-400">
+                {{ snapshot.sidecar.now_name || snapshot.sidecar.now || (snapshot.sidecar.reachable ? t('admin.harvestFlow.poolOnline', { n: snapshot.sidecar.all_count || 0 }) : t('admin.harvestFlow.waitingSidecar')) }}
+              </p>
+              <p class="mt-1 text-xs text-gray-400">{{ t('admin.harvestFlow.nodePool') }} {{ snapshot.sidecar.all_count || 0 }} · {{ snapshot.sidecar.group || 'CODEX-ROTATE' }}</p>
+              <p v-if="snapshot.sidecar.error" class="mt-1 text-xs text-rose-500">{{ snapshot.sidecar.error }}</p>
+            </template>
           </div>
           <div class="card p-4">
             <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.harvestFlow.ready') }}</p>
@@ -202,7 +209,7 @@
               <span class="text-xs bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">单号直通</span>
               <span class="text-xs text-gray-400">绕开全局排队，自由调频、单号定向打票</span>
             </div>
-            <span class="text-xs text-gray-400 font-mono">出口: {{ snapshot.sidecar.group || 'CODEX-ROTATE' }}</span>
+            <span class="text-xs text-gray-400 font-mono">出口: {{ snapshot.sidecar.mode === 'external' ? t('admin.harvestFlow.externalProxy') : snapshot.sidecar.mode === 'unconfigured' ? t('admin.harvestFlow.proxyUnconfigured') : snapshot.sidecar.group || 'CODEX-ROTATE' }}</span>
           </div>
 
           <div class="grid grid-cols-1 lg:grid-cols-12">
@@ -302,13 +309,8 @@
                   <input v-model.number="manualForm.max_attempts" type="number" min="1" max="100" class="input input-sm w-full mt-1 text-xs font-mono" />
                 </div>
                 <div>
-                  <label class="text-xs font-semibold text-gray-700 dark:text-gray-300">换节点规则</label>
-                  <select v-model="manualForm.node_switch_rule" class="input input-sm w-full mt-1 text-xs">
-                    <option value="312_or_2fail">命中 312 或连败2次切</option>
-                    <option value="every_request">每发必切</option>
-                    <option value="312_only">仅 312 切</option>
-                    <option value="never">固定当前出口</option>
-                  </select>
+                  <label class="text-xs font-semibold text-gray-700 dark:text-gray-300">{{ t('admin.harvestFlow.nodePolicy') }}</label>
+                  <p class="input-hint mt-1">{{ t('admin.harvestFlow.nodePolicyHint') }}</p>
                 </div>
               </div>
 
@@ -437,7 +439,7 @@
                   </div>
                   <p class="mt-1 break-all font-mono text-xs text-gray-500 dark:text-gray-400">
                     <span v-if="event.account_name">{{ event.account_name }}</span>
-                    <span v-if="event.node"> · {{ event.node }}</span>
+                    <span v-if="event.node"> · {{ event.node_name || event.node }}</span>
                     <span v-if="event.length"> · {{ event.length }}/{{ event.blocks || '-' }}</span>
                     <span v-if="event.expected_length && event.length && event.length !== event.expected_length">
                       · {{ t('admin.harvestFlow.wantShape', { length: event.expected_length, blocks: event.expected_blocks || '-' }) }}
@@ -782,7 +784,7 @@ const manualForm = ref({
   probe_interval_seconds: 10,
   rate_limit_cooldown_seconds: 30,
   max_attempts: 20,
-  node_switch_rule: '312_or_2fail',
+
   stop_on_success: true,
 })
 
@@ -827,7 +829,7 @@ function logTagClass(level: string) {
 }
 
 async function startManualHarvest() {
-  if (!selectedManualAccount.value) return
+  if (!selectedManualAccount.value || manualHarvesting.value) return
   manualHarvesting.value = true
   manualStatusText.value = '打票中...'
   manualStatusColor.value = 'text-amber-500'
@@ -864,10 +866,12 @@ async function startManualHarvest() {
         probe_interval_seconds: manualForm.value.probe_interval_seconds,
         rate_limit_cooldown_seconds: manualForm.value.rate_limit_cooldown_seconds,
         max_attempts: manualForm.value.max_attempts,
-        node_switch_rule: manualForm.value.node_switch_rule,
+
         stop_on_success: manualForm.value.stop_on_success,
       })
     })
+
+    if (manualAbortController !== controller || controller.signal.aborted) return
 
     if (res.status === 401) {
       addManualLog('ERROR', '登录状态已失效（HTTP 401），请刷新页面重新登录后再试。')
@@ -893,6 +897,7 @@ async function startManualHarvest() {
 
     while (true) {
       const { done, value } = await reader.read()
+      if (manualAbortController !== controller || controller.signal.aborted) return
       if (done) break
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split('\n\n')
@@ -903,7 +908,7 @@ async function startManualHarvest() {
           try {
             const data = JSON.parse(line.slice(6))
             manualProgressText.value = `${data.attempt} / ${data.max_attempts}`
-            if (data.node) manualCurrentNode.value = data.node
+            if (data.node) manualCurrentNode.value = data.node_name || data.node
             if (data.tickets_stored) manualTicketsStoredCount.value = data.tickets_stored
 
             // 后端已给出 level（OK/WARN/ERROR）与 detail（原始技术错误）；
@@ -928,14 +933,14 @@ async function startManualHarvest() {
     }
   } catch (err: any) {
     // 主动终止不是异常：stopManualHarvest 已经把状态与日志写好了。
-    if (!controller.signal.aborted) {
+    if (manualAbortController === controller && !controller.signal.aborted) {
       addManualLog('ERROR', `连接断开或打票中断: ${err.message}`)
     }
   } finally {
     if (manualAbortController === controller) {
       manualAbortController = null
+      manualHarvesting.value = false
     }
-    manualHarvesting.value = false
   }
 }
 
@@ -1054,14 +1059,16 @@ function scopeLabel(mode?: string, policy?: string, groupIds?: number[]) {
 function stageDetail(stage: CodexHarvestFlowStage) {
   switch (stage.id) {
     case 'node':
-      if (snapshot.value?.sidecar.now) return snapshot.value.sidecar.now
+      if (snapshot.value?.sidecar.mode === 'external') return t('admin.harvestFlow.externalProxyHint')
+      if (snapshot.value?.sidecar.mode === 'unconfigured') return t('admin.harvestFlow.proxyUnconfigured')
+      if (snapshot.value?.sidecar.now) return snapshot.value.sidecar.now_name || snapshot.value.sidecar.now
       if (snapshot.value?.sidecar.reachable) {
         return t('admin.harvestFlow.poolOnline', { n: snapshot.value.sidecar.all_count || 0 })
       }
       return t('admin.harvestFlow.waitingSidecar')
     case 'probe':
       if (stage.status === 'idle') return t('admin.harvestFlow.idleProbe')
-      return resultLabel(stage.detail) || stage.node || stage.detail || t('admin.harvestFlow.idleProbe')
+      return resultLabel(stage.detail) || stage.node_name || stage.node || stage.detail || t('admin.harvestFlow.idleProbe')
     case 'shape':
       if (stage.status === 'idle') return t('admin.harvestFlow.idleShape')
       if (stage.status === 'ok') {

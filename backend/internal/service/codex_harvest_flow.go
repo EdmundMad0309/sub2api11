@@ -37,6 +37,7 @@ type CodexHarvestFlowEvent struct {
 	AccountName    string    `json:"account_name,omitempty"`
 	Model          string    `json:"model,omitempty"`
 	Node           string    `json:"node,omitempty"`
+	NodeName       string    `json:"node_name,omitempty"`
 	HTTPStatus     int       `json:"http_status,omitempty"`
 	Length         int       `json:"length,omitempty"`
 	Blocks         int       `json:"blocks,omitempty"`
@@ -55,6 +56,7 @@ type CodexHarvestFlowStage struct {
 	Detail         string     `json:"detail,omitempty"`
 	At             *time.Time `json:"at,omitempty"`
 	Node           string     `json:"node,omitempty"`
+	NodeName       string     `json:"node_name,omitempty"`
 	Model          string     `json:"model,omitempty"`
 	HTTPStatus     int        `json:"http_status,omitempty"`
 	Length         int        `json:"length,omitempty"`
@@ -102,12 +104,14 @@ type CodexHarvestFlowHarvest struct {
 }
 
 type CodexHarvestFlowSidecar struct {
+	Mode       string     `json:"mode,omitempty"`
 	Reachable  bool       `json:"reachable"`
 	Source     string     `json:"source,omitempty"`
 	Controller string     `json:"controller,omitempty"`
 	Group      string     `json:"group,omitempty"`
 	Type       string     `json:"type,omitempty"`
 	Now        string     `json:"now,omitempty"`
+	NowName    string     `json:"now_name,omitempty"`
 	AllCount   int        `json:"all_count,omitempty"`
 	Error      string     `json:"error,omitempty"`
 	ObservedAt *time.Time `json:"observed_at,omitempty"`
@@ -336,7 +340,10 @@ func clipFlowText(value string, max int) string {
 	return string(runes[:max])
 }
 
-func watchCodexHarvestExit() func() string {
+func watchCodexHarvestExit(proxyURL string) func() string {
+	if !usesCodexHarvestSidecar(proxyURL) {
+		return func() string { return "" }
+	}
 	done := make(chan struct{})
 	var latest atomic.Value
 	latest.Store("")
@@ -380,6 +387,24 @@ func peekCodexHarvestExit() string {
 	}
 	recordCodexHarvestNode(node, "", 0)
 	return node
+}
+
+func usesCodexHarvestSidecar(proxyURL string) bool {
+	return strings.TrimRight(strings.TrimSpace(proxyURL), "/") == mihomo.Endpoint
+}
+
+// External harvest proxies do not require a local controller. Do not infer
+// their health or attribute their probes to an unrelated Mihomo node.
+func observeCodexHarvestProxy(ctx context.Context, proxyURL string) CodexHarvestFlowSidecar {
+	if strings.TrimSpace(proxyURL) == "" {
+		return CodexHarvestFlowSidecar{Mode: "unconfigured"}
+	}
+	if !usesCodexHarvestSidecar(proxyURL) {
+		return CodexHarvestFlowSidecar{Mode: "external"}
+	}
+	out := observeCodexHarvestSidecar(ctx)
+	out.Mode = "mihomo"
+	return out
 }
 
 func observeCodexHarvestSidecar(ctx context.Context) CodexHarvestFlowSidecar {
@@ -659,7 +684,7 @@ func BuildCodexHarvestFlow(ctx context.Context, cfg *config.Config, settings *Se
 			AttemptTimeoutSec: ticketCfg.HarvestAttemptTimeoutSeconds,
 			RefreshBeforeSec:  ticketCfg.RefreshBeforeSeconds,
 		},
-		Sidecar: observeCodexHarvestSidecar(ctx),
+		Sidecar: observeCodexHarvestProxy(ctx, harvestProxy),
 		Events:  listCodexHarvestFlowEvents(),
 	}
 	if snapshot.Harvest.HarvestProxy == "" && harvestProxy == mihomo.Endpoint {
@@ -714,6 +739,13 @@ func BuildCodexHarvestFlow(ctx context.Context, cfg *config.Config, settings *Se
 		}
 	}
 	snapshot.Stages = buildCodexHarvestFlowStages(snapshot)
+	snapshot.Sidecar.NowName = mihomo.NodeDisplayName(snapshot.Sidecar.Now)
+	for i := range snapshot.Events {
+		snapshot.Events[i].NodeName = mihomo.NodeDisplayName(snapshot.Events[i].Node)
+	}
+	for i := range snapshot.Stages {
+		snapshot.Stages[i].NodeName = mihomo.NodeDisplayName(snapshot.Stages[i].Node)
+	}
 	snapshot.Events = reverseCodexHarvestFlowEvents(snapshot.Events)
 	return snapshot
 }
@@ -743,6 +775,10 @@ func buildCodexHarvestFlowStages(snapshot CodexHarvestFlowSnapshot) []CodexHarve
 	}
 	node := CodexHarvestFlowStage{ID: "node", Status: "idle", Node: snapshot.Sidecar.Now}
 	switch {
+	case snapshot.Sidecar.Mode == "external":
+		node.Detail = "external_proxy"
+	case snapshot.Sidecar.Mode == "unconfigured":
+		node.Detail = "proxy_unconfigured"
 	case snapshot.Sidecar.Reachable && snapshot.Sidecar.Now != "":
 		node.Status = "ok"
 		node.Detail = snapshot.Sidecar.Now
@@ -761,7 +797,7 @@ func buildCodexHarvestFlowStages(snapshot CodexHarvestFlowSnapshot) []CodexHarve
 	default:
 		node.Detail = "waiting for sidecar"
 	}
-	if event, ok := last["node"]; ok {
+	if event, ok := last["node"]; ok && snapshot.Sidecar.Mode != "external" && snapshot.Sidecar.Mode != "unconfigured" {
 		at := event.At
 		node.At = &at
 		copyFlowMetrics(&node, event)

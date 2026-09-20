@@ -435,8 +435,14 @@ func parseOpenAICodexTicketFromAny(accountID int64, model string, raw any) *open
 }
 
 func (s *OpenAIGatewayService) storeOpenAICodexTicket(ctx context.Context, account *Account, ticket *openAICodexTicket) {
+	// Automatic harvest keeps the existing memory-first behavior. Persistence
+	// failures are logged by the shared implementation below.
+	_ = s.storeOpenAICodexTicketPersisted(ctx, account, ticket)
+}
+
+func (s *OpenAIGatewayService) storeOpenAICodexTicketPersisted(ctx context.Context, account *Account, ticket *openAICodexTicket) error {
 	if s == nil || account == nil || ticket == nil || account.ID <= 0 {
-		return
+		return errors.New("invalid Codex ticket store request")
 	}
 	incoming := *ticket
 	standby := false
@@ -453,9 +459,8 @@ func (s *OpenAIGatewayService) storeOpenAICodexTicket(ctx context.Context, accou
 	ticket.Model = model
 	ticket.AccountID = account.ID
 	s.openaiCodexTickets.Store(openAICodexTicketKey(account.ID, model), ticket)
-	recordCodexHarvestTicketStore(account, &incoming, standby)
 	if s.accountRepo == nil {
-		return
+		return errors.New("account repository unavailable")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -467,7 +472,10 @@ func (s *OpenAIGatewayService) storeOpenAICodexTicket(ctx context.Context, accou
 			zap.String("model", model),
 			zap.Error(err),
 		)
+		return err
 	}
+	recordCodexHarvestTicketStore(account, &incoming, standby)
+	return nil
 }
 
 // applyOpenAICodexTicket 在出站请求上覆盖 x-codex-turn-state。
@@ -851,7 +859,7 @@ func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
 	if s == nil || s.accountRepo == nil || ctx.Err() != nil || !s.openAICodexTicketEnabledContext(ctx) {
 		return
 	}
-	observeCodexHarvestSidecar(ctx)
+	observeCodexHarvestProxy(ctx, s.openAICodexTicketHarvestProxyURLContext(ctx))
 	accounts, err := s.accountRepo.ListByPlatform(ctx, PlatformOpenAI)
 	if err != nil {
 		logger.L().Warn("openai_codex_ticket list accounts failed", zap.Error(err))
@@ -991,7 +999,7 @@ func (s *OpenAIGatewayService) probeOnceOpenAICodexTicket(ctx context.Context, a
 		length, blocks := 0, 0
 		expectedLength := openAICodexTicketTargetLength(account, cfg)
 		expectedBlocks := openAICodexTicketExpectedBlocks(account)
-		stopWatch := watchCodexHarvestExit()
+		stopWatch := watchCodexHarvestExit(proxyURL)
 		defer func() {
 			node := stopWatch()
 			s.recordCodexProbe(ctx, account, model, result, httpStatus)
