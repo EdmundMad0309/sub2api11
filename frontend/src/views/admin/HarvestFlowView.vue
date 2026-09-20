@@ -48,7 +48,7 @@
 
           <ol class="grid grid-cols-1 gap-3 md:grid-cols-5">
             <li v-for="(stage, index) in snapshot.stages" :key="stage.id" class="relative">
-              <div class="rounded-2xl border p-4 transition-colors" :class="stageCardClass(stage.status)">
+              <div class="h-full rounded-2xl border p-4 transition-colors" :class="stageCardClass(stage.status)">
                 <div class="mb-3 flex items-center justify-between">
                   <div class="flex h-9 w-9 items-center justify-center rounded-xl" :class="stageIconClass(stage.status)">
                     <Icon :name="stageIcon(stage.id)" size="sm" />
