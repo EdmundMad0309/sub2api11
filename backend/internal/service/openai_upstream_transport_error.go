@@ -114,9 +114,10 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 	}
 	safeErr := sanitizeUpstreamErrorMessage(err.Error())
 	setOpsUpstreamError(c, 0, safeErr, "")
+	proxyID, proxyName := runtimeProxyErrorAttribution(account, err)
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-		ProxyID:            opsUpstreamProxyID(account),
-		ProxyName:          opsUpstreamProxyName(account),
+		ProxyID:            proxyID,
+		ProxyName:          proxyName,
 		Platform:           account.Platform,
 		AccountID:          account.ID,
 		AccountName:        account.Name,
