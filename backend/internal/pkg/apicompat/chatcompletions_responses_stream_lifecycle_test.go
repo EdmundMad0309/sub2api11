@@ -293,3 +293,84 @@ func TestStream_SSEWireComplete(t *testing.T) {
 	require.True(t, strings.Contains(addedLine, `"arguments":""`), "added line missing arguments: %s", addedLine)
 	require.Contains(t, addedLine, `"call_id":"call_a"`)
 }
+
+// completedUsageFromSSE 取出 response.completed 事件在 wire 上的 usage 原始 JSON，
+// 返回空串表示没有该事件或没有 usage。
+func completedUsageFromSSE(t *testing.T, events []ResponsesStreamEvent) string {
+	t.Helper()
+	for _, e := range events {
+		if e.Type != "response.completed" {
+			continue
+		}
+		sse, err := ResponsesEventToSSE(e)
+		require.NoError(t, err)
+		payload := strings.TrimSpace(strings.SplitN(sse, "data: ", 2)[1])
+		var frame struct {
+			Response struct {
+				Usage json.RawMessage `json:"usage"`
+			} `json:"response"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(payload), &frame))
+		return string(frame.Response.Usage)
+	}
+	return ""
+}
+
+// TestStream_CompletedUsageKeepsStrictDetailFields 覆盖 Codex 对用量明细的严格解析：
+// ResponseCompletedOutputTokensDetails.reasoning_tokens 与
+// ResponseCompletedInputTokensDetails.cached_tokens 在客户端都是必填字段。
+// 由于 ResponsesOutputTokensDetails 的 omitempty 不作用于内层字段，零值会被省略，
+// wire 上出现 `output_tokens_details:{}` 就让 Codex 报
+// `missing field `reasoning_tokens“，整条 response.completed 解析失败、流被断开重连。
+func TestStream_CompletedUsageKeepsStrictDetailFields(t *testing.T) {
+	tests := []struct {
+		name         string
+		usagePayload string
+		wantUsage    string
+	}{
+		{
+			// 上游给了明细但推理计数为 0：必须显式输出 reasoning_tokens:0，
+			// 不能退化成空明细对象。
+			name:         "zero reasoning tokens stays explicit",
+			usagePayload: `{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15,"completion_tokens_details":{"reasoning_tokens":0}}`,
+			wantUsage:    `{"input_tokens":10,"output_tokens":5,"total_tokens":15,"output_tokens_details":{"reasoning_tokens":0}}`,
+		},
+		{
+			// 只有 cache_write 明细时 cached_tokens 为 0，也必须显式输出，
+			// 否则 Codex 报 missing field `cached_tokens`。
+			name:         "zero cached tokens stays explicit alongside cache write",
+			usagePayload: `{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15,"prompt_tokens_details":{"cached_tokens":0,"cache_write_tokens":200}}`,
+			wantUsage:    `{"input_tokens":10,"output_tokens":5,"total_tokens":15,"cache_creation_input_tokens":200,"input_tokens_details":{"cached_tokens":0,"cache_write_tokens":200}}`,
+		},
+		{
+			name:         "non-zero reasoning tokens keep their value",
+			usagePayload: `{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15,"prompt_tokens_details":{"cached_tokens":4},"completion_tokens_details":{"reasoning_tokens":7}}`,
+			wantUsage:    `{"input_tokens":10,"output_tokens":5,"total_tokens":15,"input_tokens_details":{"cached_tokens":4},"output_tokens_details":{"reasoning_tokens":7}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			events := collectStreamEvents(t, []string{
+				`{"choices":[{"index":0,"delta":{"content":"ok"}}]}`,
+				`{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":` + tt.usagePayload + `}`,
+			})
+
+			require.Equal(t, tt.wantUsage, completedUsageFromSSE(t, events))
+		})
+	}
+}
+
+// TestStream_CompletedUsageOmitsAbsentDetails 确认上游没有明细时不会被补出误导性的
+// 空明细对象：字段整体缺席是安全的，出现空对象才致命。
+func TestStream_CompletedUsageOmitsAbsentDetails(t *testing.T) {
+	events := collectStreamEvents(t, []string{
+		`{"choices":[{"index":0,"delta":{"content":"ok"}}]}`,
+		`{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`,
+	})
+
+	usage := completedUsageFromSSE(t, events)
+	require.Equal(t, `{"input_tokens":10,"output_tokens":5,"total_tokens":15}`, usage)
+	require.NotContains(t, usage, `"output_tokens_details":{}`)
+	require.NotContains(t, usage, `"input_tokens_details":{}`)
+}

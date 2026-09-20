@@ -594,7 +594,10 @@ func (u *ResponsesUsage) UnmarshalJSON(data []byte) error {
 
 // ResponsesInputTokensDetails breaks down input token usage.
 type ResponsesInputTokensDetails struct {
-	CachedTokens        int `json:"cached_tokens,omitempty"`
+	// cached_tokens 不带 omitempty：Codex 的 ResponseCompletedInputTokensDetails
+	// 把该字段反序列化为必填（无 serde default），缺字段会让整条
+	// response.completed 解析失败。零值必须显式输出。
+	CachedTokens        int `json:"cached_tokens"`
 	AudioTokens         int `json:"audio_tokens,omitempty"`
 	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"`
 	CacheWriteTokens    int `json:"cache_write_tokens,omitempty"`
@@ -602,7 +605,10 @@ type ResponsesInputTokensDetails struct {
 
 // ResponsesOutputTokensDetails breaks down output token usage.
 type ResponsesOutputTokensDetails struct {
-	ReasoningTokens          int `json:"reasoning_tokens,omitempty"`
+	// reasoning_tokens 同样不带 omitempty：Codex 的
+	// ResponseCompletedOutputTokensDetails 要求该字段必填，只输出空对象
+	// `output_tokens_details:{}` 会被严格客户端拒绝。
+	ReasoningTokens          int `json:"reasoning_tokens"`
 	AudioTokens              int `json:"audio_tokens,omitempty"`
 	AcceptedPredictionTokens int `json:"accepted_prediction_tokens,omitempty"`
 	RejectedPredictionTokens int `json:"rejected_prediction_tokens,omitempty"`
