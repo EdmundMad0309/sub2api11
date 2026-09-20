@@ -788,6 +788,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	s.InvalidateOpenAICodexTicketFailClosedCache()
 	s.InvalidateOpenAICodexTicketModelsCache()
 	s.InvalidateOpenAICodexTicketHarvestProxyCache()
+	s.InvalidateOpenAICodexTicketHarvestScopeCache()
 	openAIAdvancedSchedulerSettingSF.Forget(openAIAdvancedSchedulerSettingKey)
 	openAIAdvancedSchedulerSettingCache.Store(&cachedOpenAIAdvancedSchedulerSetting{
 		lowUpstreamRatePriorityEnabled: settings.OpenAILowUpstreamRatePriorityEnabled,

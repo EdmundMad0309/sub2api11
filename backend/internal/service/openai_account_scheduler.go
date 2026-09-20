@@ -561,6 +561,10 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		clearBinding()
 		return nil, false, nil
 	}
+	if !req.PreserveStickyBinding && s.service.openAICodexTicketShouldYieldSticky(ctx, account, req.GroupID, req.Platform, req.RequestedModel, req.RequireCompact, req.ExcludedIDs) {
+		clearBinding()
+		return nil, false, nil
+	}
 	escapeCfg := s.service.openAIStickyEscapeConfig()
 	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg); shouldEscape && !req.DisableStickyEscape {
 		slog.Info("sticky_escape_triggered",
@@ -1066,8 +1070,26 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		ranked := selectTopKOpenAICandidates(pool, groupTopK)
 		var primary []openAIAccountCandidateScore
 		if req.StickyWeighted {
+			skipSessionSticky := false
+			if req.StickyAccountID > 0 && req.StickyAccountID != req.StickyPreviousAccountID {
+				var stickyAcc *Account
+				others := make([]*Account, 0, len(pool))
+				for _, candidate := range pool {
+					if candidate.account == nil {
+						continue
+					}
+					if candidate.account.ID == req.StickyAccountID {
+						stickyAcc = candidate.account
+					}
+					others = append(others, candidate.account)
+				}
+				skipSessionSticky = stickyAcc != nil && s.service.openAICodexTicketShouldYieldStickyTo(stickyAcc, others, req.RequestedModel, req.RequireCompact, req.ExcludedIDs)
+			}
 			for _, stickyID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
 				if stickyID <= 0 {
+					continue
+				}
+				if skipSessionSticky && stickyID == req.StickyAccountID {
 					continue
 				}
 				for i, candidate := range ranked {
@@ -1458,6 +1480,13 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			continue
 		}
 		if s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel, req.RequireCompact) {
+			if s.service.openAICodexTicketBlocksAccount(account, s.service.openAICodexTicketOutboundModel(account, req.RequestedModel, req.RequireCompact)) {
+				reason := "ticket_unavailable"
+				if s.service.openAICodexTicketHarvestExcluded(account) {
+					reason = "harvest_excluded"
+				}
+				recordCodexHarvestSelect(account, req.RequestedModel, "skip", reason, "")
+			}
 			filterStats.exclude("runtime_blocked")
 			continue
 		}
@@ -2169,8 +2198,9 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	platform string,
 	previousResponseCanMove bool,
 	useUpstreamTokenCost bool,
-) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
-	selection, decision, err := s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
+) (selection *AccountSelectionResult, decision OpenAIAccountScheduleDecision, err error) {
+	defer func() { s.observeCodexHarvestSelect(selection, requestedModel, err) }()
+	selection, decision, err = s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
 	if err == nil || openAIProxyStreamQuarantineBypassed(ctx) {
 		return selection, decision, err
 	}
@@ -2187,6 +2217,25 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	}
 	s.logOpenAIProxyStreamQuarantineFailOpen(requestedModel, blocked)
 	return s.selectAccountWithSchedulerOnce(withOpenAIProxyStreamQuarantineBypass(ctx), groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
+}
+
+func (s *OpenAIGatewayService) observeCodexHarvestSelect(selection *AccountSelectionResult, model string, err error) {
+	if s == nil || !s.openAICodexTicketEnabled() {
+		return
+	}
+	model = normalizeOpenAICodexTicketModel(model)
+	if !s.openAICodexTicketGatedModel(model) {
+		return
+	}
+	if selection != nil && selection.Account != nil {
+		if isOpenAICodexTicketAccount(selection.Account) {
+			recordCodexHarvestSelect(selection.Account, model, "selected", "", "")
+		}
+		return
+	}
+	if err != nil {
+		recordCodexHarvestSelect(nil, model, "failed", "unavailable", err.Error())
+	}
 }
 
 type openAIGroupPrivacyRequirementContextKey struct{}

@@ -46,6 +46,15 @@ func harvestScopeService(t *testing.T, raw string, accounts []Account, budget in
 	return s, u, repo
 }
 
+func TestCodexHarvestSkipExtraDoesNotProbe(t *testing.T) {
+	skipped := harvestScopeAccount(3, true, 3)
+	skipped.Extra = map[string]any{OpenAICodexSkipHarvestExtraKey: true}
+	kept := harvestScopeAccount(2, true, 3)
+	s, u, _ := harvestScopeService(t, `{"mode":"selected","group_ids":[3]}`, []Account{skipped, kept}, 20)
+	s.refreshOpenAICodexTickets(context.Background())
+	require.Equal(t, []int64{2}, u.ids)
+}
+
 func TestCodexHarvestScopeFilteringAndDeduplication(t *testing.T) {
 	a := harvestScopeAccount(1, true, 2, 24)
 	b := harvestScopeAccount(2, true, 26)
@@ -86,11 +95,31 @@ func TestCodexHarvestScopeLegacyAndRuntimeChange(t *testing.T) {
 	s.refreshOpenAICodexTickets(context.Background())
 	require.Equal(t, []int64{1}, u.ids)
 	repo.values[SettingKeyOpenAICodexTicketHarvestScope] = `{"mode":"selected","group_ids":[]}`
+	s.settingService.InvalidateOpenAICodexTicketHarvestScopeCache()
 	s.refreshOpenAICodexTickets(context.Background())
 	require.Equal(t, []int64{1}, u.ids)
 	repo.values[SettingKeyOpenAICodexTicketHarvestScope] = `{"mode":"selected","group_ids":[26]}`
+	s.settingService.InvalidateOpenAICodexTicketHarvestScopeCache()
 	s.refreshOpenAICodexTickets(context.Background())
 	require.Equal(t, []int64{1, 2}, u.ids)
+}
+
+func TestCodexTicketHarvestScopeCacheHotReloads(t *testing.T) {
+	repo := &codexTicketSettingRepo{codexPolicyMigrationRepoStub: &codexPolicyMigrationRepoStub{values: map[string]string{
+		SettingKeyOpenAICodexTicketHarvestScope: `{"mode":"selected","group_ids":[3]}`,
+	}}}
+	settings := NewSettingService(repo, &config.Config{})
+	scope, err := settings.GetCodexTicketHarvestScope(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, []int64{3}, scope.GroupIDs)
+	repo.values[SettingKeyOpenAICodexTicketHarvestScope] = `{"mode":"selected","group_ids":[26]}`
+	scope, err = settings.GetCodexTicketHarvestScope(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, []int64{3}, scope.GroupIDs)
+	settings.InvalidateOpenAICodexTicketHarvestScopeCache()
+	scope, err = settings.GetCodexTicketHarvestScope(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, []int64{26}, scope.GroupIDs)
 }
 
 func TestCodexHarvestPriorityRoundRobinAndDeferredBudget(t *testing.T) {
@@ -198,6 +227,7 @@ func TestCodexHarvestSelectedGroupMustRemainActive(t *testing.T) {
 	s.refreshOpenAICodexTickets(context.Background())
 	require.Empty(t, u.ids)
 	repo.values[SettingKeyOpenAICodexTicketHarvestScope] = `{"mode":"selected","group_ids":[2,3]}`
+	s.settingService.InvalidateOpenAICodexTicketHarvestScopeCache()
 	s.refreshOpenAICodexTickets(context.Background())
 	require.Equal(t, []int64{1}, u.ids)
 }
@@ -236,4 +266,14 @@ func TestCodexHarvestAccountPriorityBreaksGroupPriorityTie(t *testing.T) {
 	s, u, _ := harvestScopeService(t, "", []Account{a, b}, 6)
 	s.refreshOpenAICodexTickets(context.Background())
 	require.Equal(t, []int64{2, 1}, u.ids)
+}
+
+func TestCodexHarvestScopeExpiredCacheDoesNotHideStorageFailure(t *testing.T) {
+	s, _, repo := harvestScopeService(t, `{"mode":"selected","group_ids":[3]}`, nil, 6)
+	_, err := s.settingService.GetCodexTicketHarvestScope(context.Background())
+	require.NoError(t, err)
+	s.settingService.InvalidateOpenAICodexTicketHarvestScopeCache()
+	repo.err = errors.New("storage unavailable")
+	_, err = s.settingService.GetCodexTicketHarvestScope(context.Background())
+	require.Error(t, err)
 }

@@ -31,6 +31,7 @@ import (
 
 const (
 	openAICodexTicketExtraKeyPrefix  = "codex_turn_ticket:"
+	OpenAICodexSkipHarvestExtraKey   = "codex_skip_harvest"
 	openAICodexAstraMinVersion       = "0.153.4"
 	openAICodexTicketStatePrefix     = "gAAAAA"
 	openAICodexTicketDefaultModel    = "gpt-6-astra"
@@ -243,7 +244,7 @@ func OpenAICodexTicketStatuses(account *Account, cfg config.OpenAICodexTicketCon
 		if account != nil && account.Extra != nil {
 			ticket = parseOpenAICodexTicketFromAny(account.ID, model, account.Extra[openAICodexTicketExtraKey(model)])
 		}
-		if ticket != nil && ticket.Identity != "" && ticket.Identity != ticketIdentity(account) {
+		if ticket != nil && !ticketIdentityMatches(account, ticket) {
 			ticket = nil
 		}
 		if ticket != nil && ticket.Standby.valid(now, targetLen) {
@@ -335,11 +336,16 @@ func (s *OpenAIGatewayService) lookupOpenAICodexTicket(account *Account, model s
 	return s.lookupCodexTicketLocked(account, model)
 }
 
+// Keep the production identity binding: candidates are hydrated by the
+// scheduler before admission, so missing identity must not bypass the gate.
 func ticketIdentity(account *Account) string {
 	if account == nil {
 		return ""
 	}
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(account.GetCredential("chatgpt_account_id")+"\x00"+account.GetCredential("email"))))
+}
+func ticketIdentityMatches(account *Account, ticket *openAICodexTicket) bool {
+	return ticket != nil && (ticket.Identity == "" || ticket.Identity == ticketIdentity(account))
 }
 
 func (s *OpenAIGatewayService) lookupCodexTicketLocked(account *Account, model string) *openAICodexTicket {
@@ -361,11 +367,10 @@ func (s *OpenAIGatewayService) lookupCodexTicketLocked(account *Account, model s
 	if account.Extra != nil {
 		extra = parseOpenAICodexTicketFromAny(account.ID, model, account.Extra[openAICodexTicketExtraKey(model)])
 	}
-	identity := ticketIdentity(account)
-	if mem != nil && mem.Identity != "" && mem.Identity != identity {
+	if mem != nil && !ticketIdentityMatches(account, mem) {
 		mem = nil
 	}
-	if extra != nil && extra.Identity != "" && extra.Identity != identity {
+	if extra != nil && !ticketIdentityMatches(account, extra) {
 		extra = nil
 	}
 	if extra != nil && !extra.valid(now, targetLen) && extra.Standby.valid(now, targetLen) {
@@ -427,6 +432,8 @@ func (s *OpenAIGatewayService) storeOpenAICodexTicket(ctx context.Context, accou
 	if s == nil || account == nil || ticket == nil || account.ID <= 0 {
 		return
 	}
+	incoming := *ticket
+	standby := false
 	s.openaiCodexTicketStateMu.Lock()
 	defer s.openaiCodexTicketStateMu.Unlock()
 	model := normalizeOpenAICodexTicketModel(ticket.Model)
@@ -435,10 +442,12 @@ func (s *OpenAIGatewayService) storeOpenAICodexTicket(ctx context.Context, accou
 		copy := *current
 		copy.Standby = ticket
 		ticket = &copy
+		standby = true
 	}
 	ticket.Model = model
 	ticket.AccountID = account.ID
 	s.openaiCodexTickets.Store(openAICodexTicketKey(account.ID, model), ticket)
+	recordCodexHarvestTicketStore(account, &incoming, standby)
 	if s.accountRepo == nil {
 		return
 	}
@@ -467,6 +476,12 @@ func (s *OpenAIGatewayService) applyOpenAICodexTicket(ctx context.Context, accou
 		return nil
 	}
 	cfg := s.openAICodexTicketConfig()
+	if s.openAICodexTicketHarvestExcluded(account) {
+		if !cfg.FailClosed {
+			return nil
+		}
+		return ErrOpenAICodexTicketUnavailable
+	}
 	ticket := s.lookupOpenAICodexTicket(account, model)
 	if ticket.valid(time.Now(), openAICodexTicketTargetLength(account, cfg)) {
 		h.Set(openAICodexTurnStateHeader, ticket.State)
@@ -522,8 +537,125 @@ func (s *OpenAIGatewayService) openAICodexTicketBlocksAccount(account *Account, 
 	if !s.openAICodexTicketGatedModel(model) {
 		return false
 	}
+	if s.openAICodexTicketHarvestExcluded(account) {
+		return true
+	}
 	ticket := s.lookupOpenAICodexTicket(account, model)
 	return !ticket.valid(time.Now(), openAICodexTicketTargetLength(account, cfg))
+}
+
+func (s *OpenAIGatewayService) openAICodexTicketReadyForRequest(account *Account, requestedModel string, requireCompact bool) bool {
+	if s == nil || account == nil || !isOpenAICodexTicketAccount(account) || !s.openAICodexTicketEnabled() {
+		return false
+	}
+	outbound := s.openAICodexTicketOutboundModel(account, requestedModel, requireCompact)
+	model := normalizeOpenAICodexTicketModel(outbound)
+	if model == "" || !s.openAICodexTicketGatedModel(model) {
+		return false
+	}
+	if s.openAICodexTicketHarvestExcluded(account) {
+		return false
+	}
+	ticket := s.lookupOpenAICodexTicket(account, model)
+	return ticket.valid(time.Now(), openAICodexTicketTargetLength(account, s.openAICodexTicketConfig()))
+}
+
+func extraTruthy(value any) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "1", "true", "yes":
+			return true
+		}
+	case float64:
+		return v != 0
+	case int:
+		return v != 0
+	case int64:
+		return v != 0
+	}
+	return false
+}
+
+func openAICodexSkipHarvest(account *Account) bool {
+	if account == nil || account.Extra == nil {
+		return false
+	}
+	return extraTruthy(account.Extra[OpenAICodexSkipHarvestExtraKey])
+}
+
+// Harvest-excluded accounts keep leftover Extra tickets, but fail-closed
+// gated routing must not spend them. Group scope and per-account skip_harvest
+// share this gate so a 5x in the same assistant group cannot consume tickets
+// harvested for 20x.
+func (s *OpenAIGatewayService) openAICodexTicketHarvestExcluded(account *Account) bool {
+	if openAICodexSkipHarvest(account) {
+		return true
+	}
+	if s == nil || s.settingService == nil || account == nil {
+		return false
+	}
+	scope, err := s.settingService.GetCodexTicketHarvestScope(context.Background())
+	if err != nil {
+		return true
+	}
+	if scope.Mode != "selected" {
+		return false
+	}
+	return !scope.includes(account)
+}
+
+// Sticky sessions ignore account priority. A leftover 292 on a low-priority
+// account (for example a 5x that is no longer harvested) would otherwise pin
+// traffic forever even after a higher-priority account such as 20x harvests.
+func (s *OpenAIGatewayService) openAICodexTicketShouldYieldStickyTo(sticky *Account, candidates []*Account, requestedModel string, requireCompact bool, excludedIDs map[int64]struct{}) bool {
+	if s == nil || sticky == nil || !s.openAICodexTicketEnabled() {
+		return false
+	}
+	outbound := s.openAICodexTicketOutboundModel(sticky, requestedModel, requireCompact)
+	if !s.openAICodexTicketGatedModel(outbound) {
+		return false
+	}
+	stickyPriority := openAIAccountSchedulingPriority(sticky)
+	for _, account := range candidates {
+		if account == nil || account.ID == sticky.ID {
+			continue
+		}
+		if excludedIDs != nil {
+			if _, skipped := excludedIDs[account.ID]; skipped {
+				continue
+			}
+		}
+		if openAIAccountSchedulingPriority(account) >= stickyPriority {
+			continue
+		}
+		if s.isOpenAIAccountRequestRuntimeBlocked(account, requestedModel, requireCompact) {
+			continue
+		}
+		if !s.openAICodexTicketReadyForRequest(account, requestedModel, requireCompact) {
+			continue
+		}
+		recordCodexHarvestSelect(sticky, requestedModel, "yield", "higher_priority_ticket", account.Name)
+		return true
+	}
+	return false
+}
+
+func (s *OpenAIGatewayService) openAICodexTicketShouldYieldSticky(ctx context.Context, sticky *Account, groupID *int64, platform, requestedModel string, requireCompact bool, excludedIDs map[int64]struct{}) bool {
+	if s == nil || sticky == nil || !s.openAICodexTicketEnabled() {
+		return false
+	}
+	accounts, err := s.listSchedulableAccountsForRequest(ctx, groupID, platform, requestedModel, requireCompact, excludedIDs)
+	if err != nil || len(accounts) == 0 {
+		return false
+	}
+	candidates := make([]*Account, 0, len(accounts))
+	for i := range accounts {
+		candidates = append(candidates, &accounts[i])
+	}
+	return s.openAICodexTicketShouldYieldStickyTo(sticky, candidates, requestedModel, requireCompact, excludedIDs)
 }
 
 func (s *OpenAIGatewayService) fireOpenAICodexTicketProbe(ctx context.Context, account *Account, token, model, proxyURL string, attemptTimeout time.Duration) (state string, status int, err error) {
@@ -692,6 +824,7 @@ func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
 	if s == nil || s.accountRepo == nil || ctx.Err() != nil || !s.openAICodexTicketEnabledContext(ctx) {
 		return
 	}
+	observeCodexHarvestSidecar(ctx)
 	accounts, err := s.accountRepo.ListByPlatform(ctx, PlatformOpenAI)
 	if err != nil {
 		logger.L().Warn("openai_codex_ticket list accounts failed", zap.Error(err))
@@ -713,7 +846,7 @@ func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
 	tiers := map[codexHarvestTier][]Account{}
 	seen := make(map[int64]bool, len(accounts))
 	for _, account := range accounts {
-		if seen[account.ID] || !scope.includes(&account) || !scope.allowsAccount(&account) || !isOpenAICodexTicketAccount(&account) {
+		if seen[account.ID] || openAICodexSkipHarvest(&account) || !scope.includes(&account) || !scope.allowsAccount(&account) || !isOpenAICodexTicketAccount(&account) {
 			continue
 		}
 		seen[account.ID] = true
@@ -828,7 +961,15 @@ func (s *OpenAIGatewayService) probeOnceOpenAICodexTicket(ctx context.Context, a
 	key := openAICodexTicketKey(account.ID, model)
 	_, _, _ = s.openaiCodexTicketFlight.Do(key, func() (any, error) {
 		result, httpStatus := "token_error", 0
-		defer func() { s.recordCodexProbe(ctx, account, model, result, httpStatus) }()
+		length, blocks := 0, 0
+		expectedLength := openAICodexTicketTargetLength(account, cfg)
+		expectedBlocks := openAICodexTicketExpectedBlocks(account)
+		stopWatch := watchCodexHarvestExit()
+		defer func() {
+			node := stopWatch()
+			s.recordCodexProbe(ctx, account, model, result, httpStatus)
+			recordCodexHarvestProbe(account, model, result, node, "", httpStatus, length, blocks, expectedLength, expectedBlocks)
+		}()
 		token, _, err := s.GetAccessToken(ctx, account)
 		if err != nil || strings.TrimSpace(token) == "" {
 			s.cooldownTicketProbe(account.ID, model, cfg)
@@ -839,6 +980,7 @@ func (s *OpenAIGatewayService) probeOnceOpenAICodexTicket(ctx context.Context, a
 		}
 		state, status, perr := s.fireOpenAICodexTicketProbe(ctx, account, token, model, proxyURL, time.Duration(cfg.HarvestAttemptTimeoutSeconds)*time.Second)
 		httpStatus = status
+		length = len(state)
 		result = "response_incomplete_or_error"
 		if perr != nil {
 			s.cooldownTicketProbe(account.ID, model, cfg)
@@ -848,12 +990,11 @@ func (s *OpenAIGatewayService) probeOnceOpenAICodexTicket(ctx context.Context, a
 			return nil, nil
 		}
 		shape, shapeErr := parseOpenAICodexTicketShape(state)
+		blocks = shape.Blocks
 		result = "invalid_state"
 		if shapeErr == nil && (shape.IssuedAt.After(time.Now().Add(30*time.Second)) || !time.Now().Before(shape.IssuedAt.Add(time.Hour-30*time.Second))) {
 			shapeErr = errors.New("candidate state expired or issued in the future")
 		}
-		expectedLength := openAICodexTicketTargetLength(account, cfg)
-		expectedBlocks := openAICodexTicketExpectedBlocks(account)
 		if status != http.StatusOK || shapeErr != nil || shape.Blocks != expectedBlocks || len(state) != expectedLength || !strings.HasPrefix(state, openAICodexTicketStatePrefix) {
 			s.cooldownTicketProbe(account.ID, model, cfg)
 			logger.L().Info("openai_codex_ticket probe miss",
