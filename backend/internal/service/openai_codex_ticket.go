@@ -859,7 +859,7 @@ func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
 	if s == nil || s.accountRepo == nil || ctx.Err() != nil || !s.openAICodexTicketEnabledContext(ctx) {
 		return
 	}
-	observeCodexHarvestSidecar(ctx)
+	observeCodexHarvestProxy(ctx, s.openAICodexTicketHarvestProxyURLContext(ctx))
 	accounts, err := s.accountRepo.ListByPlatform(ctx, PlatformOpenAI)
 	if err != nil {
 		logger.L().Warn("openai_codex_ticket list accounts failed", zap.Error(err))
@@ -999,7 +999,7 @@ func (s *OpenAIGatewayService) probeOnceOpenAICodexTicket(ctx context.Context, a
 		length, blocks := 0, 0
 		expectedLength := openAICodexTicketTargetLength(account, cfg)
 		expectedBlocks := openAICodexTicketExpectedBlocks(account)
-		stopWatch := watchCodexHarvestExit()
+		stopWatch := watchCodexHarvestExit(proxyURL)
 		defer func() {
 			node := stopWatch()
 			s.recordCodexProbe(ctx, account, model, result, httpStatus)

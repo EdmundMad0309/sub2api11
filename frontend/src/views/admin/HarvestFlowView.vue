@@ -74,14 +74,21 @@
         <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <div class="card p-4">
             <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.harvestFlow.sidecar') }}</p>
-            <p class="mt-1 text-sm font-semibold" :class="snapshot.sidecar.reachable ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'">
+            <p v-if="snapshot.sidecar.mode === 'external'" class="mt-1 text-sm font-semibold text-gray-600 dark:text-gray-300">
+              {{ t('admin.harvestFlow.externalProxy') }}
+            </p>
+            <p v-else-if="snapshot.sidecar.mode === 'unconfigured'" class="mt-1 text-sm text-gray-500">{{ t('admin.harvestFlow.proxyUnconfigured') }}</p>
+            <p v-else class="mt-1 text-sm font-semibold" :class="snapshot.sidecar.reachable ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'">
               {{ snapshot.sidecar.reachable ? t('admin.harvestFlow.sidecarReachable') : t('admin.harvestFlow.sidecarOffline') }}
             </p>
-            <p class="mt-2 break-all font-mono text-xs text-gray-500 dark:text-gray-400">
-              {{ snapshot.sidecar.now_name || snapshot.sidecar.now || (snapshot.sidecar.reachable ? t('admin.harvestFlow.poolOnline', { n: snapshot.sidecar.all_count || 0 }) : t('admin.harvestFlow.waitingSidecar')) }}
-            </p>
-            <p class="mt-1 text-xs text-gray-400">{{ t('admin.harvestFlow.nodePool') }} {{ snapshot.sidecar.all_count || 0 }} · {{ snapshot.sidecar.group || 'CODEX-ROTATE' }}</p>
-            <p v-if="snapshot.sidecar.error" class="mt-1 text-xs text-rose-500">{{ snapshot.sidecar.error }}</p>
+            <p v-if="snapshot.sidecar.mode === 'external'" class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.harvestFlow.externalProxyHint') }}</p>
+            <template v-else-if="snapshot.sidecar.mode !== 'unconfigured'">
+              <p class="mt-2 break-all font-mono text-xs text-gray-500 dark:text-gray-400">
+                {{ snapshot.sidecar.now_name || snapshot.sidecar.now || (snapshot.sidecar.reachable ? t('admin.harvestFlow.poolOnline', { n: snapshot.sidecar.all_count || 0 }) : t('admin.harvestFlow.waitingSidecar')) }}
+              </p>
+              <p class="mt-1 text-xs text-gray-400">{{ t('admin.harvestFlow.nodePool') }} {{ snapshot.sidecar.all_count || 0 }} · {{ snapshot.sidecar.group || 'CODEX-ROTATE' }}</p>
+              <p v-if="snapshot.sidecar.error" class="mt-1 text-xs text-rose-500">{{ snapshot.sidecar.error }}</p>
+            </template>
           </div>
           <div class="card p-4">
             <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.harvestFlow.ready') }}</p>
@@ -202,7 +209,7 @@
               <span class="text-xs bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">单号直通</span>
               <span class="text-xs text-gray-400">绕开全局排队，自由调频、单号定向打票</span>
             </div>
-            <span class="text-xs text-gray-400 font-mono">出口: {{ snapshot.sidecar.group || 'CODEX-ROTATE' }}</span>
+            <span class="text-xs text-gray-400 font-mono">出口: {{ snapshot.sidecar.mode === 'external' ? t('admin.harvestFlow.externalProxy') : snapshot.sidecar.mode === 'unconfigured' ? t('admin.harvestFlow.proxyUnconfigured') : snapshot.sidecar.group || 'CODEX-ROTATE' }}</span>
           </div>
 
           <div class="grid grid-cols-1 lg:grid-cols-12">
@@ -1052,6 +1059,8 @@ function scopeLabel(mode?: string, policy?: string, groupIds?: number[]) {
 function stageDetail(stage: CodexHarvestFlowStage) {
   switch (stage.id) {
     case 'node':
+      if (snapshot.value?.sidecar.mode === 'external') return t('admin.harvestFlow.externalProxyHint')
+      if (snapshot.value?.sidecar.mode === 'unconfigured') return t('admin.harvestFlow.proxyUnconfigured')
       if (snapshot.value?.sidecar.now) return snapshot.value.sidecar.now_name || snapshot.value.sidecar.now
       if (snapshot.value?.sidecar.reachable) {
         return t('admin.harvestFlow.poolOnline', { n: snapshot.value.sidecar.all_count || 0 })

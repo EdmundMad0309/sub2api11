@@ -166,7 +166,7 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(
 				continue
 			}
 
-			stopWatch := watchCodexHarvestExit()
+			stopWatch := watchCodexHarvestExit(proxyURL)
 			state, status, perr := s.fireOpenAICodexTicketProbe(
 				ctx, account, token, model, proxyURL,
 				time.Duration(cfg.HarvestAttemptTimeoutSeconds)*time.Second,

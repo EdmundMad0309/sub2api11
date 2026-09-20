@@ -106,6 +106,18 @@ describe('HarvestFlowView nullable API lists', () => {
 })
 
 describe('HarvestFlowView manual tasks and node names', () => {
+  it('shows external proxy mode without a sidecar error or node pool', async () => {
+    getFlow.mockResolvedValue({ ...response(), sidecar: { mode: 'external', reachable: false }, stages: [{ id: 'node', status: 'idle', detail: 'external_proxy' }] })
+    const wrapper = mount(HarvestFlowView, { global: { stubs: { Icon: true, LoadingSpinner: true } } })
+    try {
+      await flushPromises()
+      expect(wrapper.text()).toContain('admin.harvestFlow.externalProxy')
+      expect(wrapper.text()).toContain('admin.harvestFlow.externalProxyHint')
+      expect(wrapper.text()).not.toContain('admin.harvestFlow.sidecarOffline')
+      expect(wrapper.text()).not.toContain('admin.harvestFlow.waitingSidecar')
+      expect(wrapper.text()).not.toContain('CODEX-ROTATE')
+    } finally { wrapper.unmount() }
+  })
   afterEach(() => {
     vi.unstubAllGlobals()
   })

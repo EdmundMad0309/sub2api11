@@ -1,5 +1,8 @@
 export default {
   harvestFlow: {
+    externalProxy: 'Static / external proxy',
+    externalProxyHint: 'Node rotation is managed by the proxy provider; no local sidecar is required.',
+    proxyUnconfigured: 'Harvest proxy not configured',
     nodePolicy: 'Node rotation',
     nodePolicyHint: 'Controlled by the harvest proxy configuration; this task does not override rotation.',
     title: 'Ticket Harvest Flow',
