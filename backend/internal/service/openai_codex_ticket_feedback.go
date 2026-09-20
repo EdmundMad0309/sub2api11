@@ -69,6 +69,7 @@ func (s *OpenAIGatewayService) observeCodexTicketResponse(req *http.Request, res
 		}
 		next.CapturedAt = time.Now()
 		s.openaiCodexTickets.Store(openAICodexTicketKey(account.ID, model), &next)
+		recordCodexHarvestTicketReject(account, model, "response_mismatch", len(returned), shape.Blocks)
 		if s.accountRepo != nil {
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(req.Context()), time.Second)
 			_ = s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{openAICodexTicketExtraKey(model): &next})

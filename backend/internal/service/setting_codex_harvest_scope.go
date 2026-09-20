@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 const SettingKeyOpenAICodexTicketHarvestScope = "openai_codex_ticket_harvest_scope"
@@ -16,8 +17,10 @@ const (
 	CodexHarvestPrioritizeSchedulable = "prioritize_schedulable"
 )
 
-// CodexTicketHarvestScope affects background harvesting only, not request routing
-// or existing tickets. Selected with no groups intentionally harvests nothing.
+// CodexTicketHarvestScope selects which accounts the background harvester
+// probes. Fail-closed ticket-gated routing also refuses leftover tickets on
+// accounts outside this scope. Selected with no groups harvests nothing and
+// admits no leftover tickets on gated models.
 type CodexTicketHarvestScope struct {
 	Mode          string  `json:"mode"`
 	GroupIDs      []int64 `json:"group_ids"`
@@ -67,20 +70,88 @@ func parseCodexTicketHarvestScope(raw string) (CodexTicketHarvestScope, error) {
 	return NormalizeCodexTicketHarvestScope(scope)
 }
 
-// Read the complete scope atomically once per round. Storage errors stop the
-// round rather than silently falling back to harvesting all accounts.
+type cachedOpenAICodexTicketHarvestScope struct {
+	scope     CodexTicketHarvestScope
+	expiresAt int64
+}
+
+const openAICodexTicketHarvestScopeCacheTTL = 5 * time.Second
+
+func cloneCodexTicketHarvestScope(scope CodexTicketHarvestScope) CodexTicketHarvestScope {
+	out := scope
+	if scope.GroupIDs != nil {
+		out.GroupIDs = append([]int64{}, scope.GroupIDs...)
+	}
+	return out
+}
+
+// Read the complete scope atomically. Harvest rounds fail closed on storage
+// errors instead of widening to all accounts. Ticket-gated selection reuses
+// this helper, so a 5s cache plus singleflight keeps the hot path off DB.
 func (s *SettingService) GetCodexTicketHarvestScope(ctx context.Context) (CodexTicketHarvestScope, error) {
 	if s == nil || s.settingRepo == nil {
 		return parseCodexTicketHarvestScope("")
 	}
-	raw, err := s.settingRepo.GetValue(ctx, SettingKeyOpenAICodexTicketHarvestScope)
-	if errors.Is(err, ErrSettingNotFound) {
-		return parseCodexTicketHarvestScope("")
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	if err != nil {
-		return CodexTicketHarvestScope{}, err
+	if cached, ok := s.openAICodexTicketHarvestScopeCache.Load().(*cachedOpenAICodexTicketHarvestScope); ok && cached != nil && time.Now().UnixNano() < cached.expiresAt {
+		return cloneCodexTicketHarvestScope(cached.scope), nil
 	}
-	return parseCodexTicketHarvestScope(raw)
+	resultCh := s.openAICodexTicketHarvestScopeSF.DoChan(SettingKeyOpenAICodexTicketHarvestScope, func() (any, error) {
+		if cached, ok := s.openAICodexTicketHarvestScopeCache.Load().(*cachedOpenAICodexTicketHarvestScope); ok && cached != nil && time.Now().UnixNano() < cached.expiresAt {
+			return cloneCodexTicketHarvestScope(cached.scope), nil
+		}
+		dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		raw, err := s.settingRepo.GetValue(dbCtx, SettingKeyOpenAICodexTicketHarvestScope)
+		if errors.Is(err, ErrSettingNotFound) {
+			scope, parseErr := parseCodexTicketHarvestScope("")
+			if parseErr != nil {
+				return CodexTicketHarvestScope{}, parseErr
+			}
+			s.openAICodexTicketHarvestScopeCache.Store(&cachedOpenAICodexTicketHarvestScope{
+				scope:     cloneCodexTicketHarvestScope(scope),
+				expiresAt: time.Now().Add(openAICodexTicketHarvestScopeCacheTTL).UnixNano(),
+			})
+			return cloneCodexTicketHarvestScope(scope), nil
+		}
+		if err != nil {
+			if cached, ok := s.openAICodexTicketHarvestScopeCache.Load().(*cachedOpenAICodexTicketHarvestScope); ok && cached != nil {
+				return cloneCodexTicketHarvestScope(cached.scope), nil
+			}
+			return CodexTicketHarvestScope{}, err
+		}
+		scope, parseErr := parseCodexTicketHarvestScope(raw)
+		if parseErr != nil {
+			return CodexTicketHarvestScope{}, parseErr
+		}
+		s.openAICodexTicketHarvestScopeCache.Store(&cachedOpenAICodexTicketHarvestScope{
+			scope:     cloneCodexTicketHarvestScope(scope),
+			expiresAt: time.Now().Add(openAICodexTicketHarvestScopeCacheTTL).UnixNano(),
+		})
+		return cloneCodexTicketHarvestScope(scope), nil
+	})
+	select {
+	case <-ctx.Done():
+		return CodexTicketHarvestScope{}, ctx.Err()
+	case result := <-resultCh:
+		if result.Err != nil {
+			return CodexTicketHarvestScope{}, result.Err
+		}
+		if scope, ok := result.Val.(CodexTicketHarvestScope); ok {
+			return cloneCodexTicketHarvestScope(scope), nil
+		}
+		return CodexTicketHarvestScope{}, fmt.Errorf("invalid harvest scope cache payload")
+	}
+}
+
+func (s *SettingService) InvalidateOpenAICodexTicketHarvestScopeCache() {
+	if s == nil {
+		return
+	}
+	s.openAICodexTicketHarvestScopeSF.Forget(SettingKeyOpenAICodexTicketHarvestScope)
+	s.openAICodexTicketHarvestScopeCache.Store(&cachedOpenAICodexTicketHarvestScope{expiresAt: 0})
 }
 
 func (scope CodexTicketHarvestScope) includes(account *Account) bool {
