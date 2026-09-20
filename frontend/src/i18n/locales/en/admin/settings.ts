@@ -561,6 +561,7 @@ export default {
         codexTicketProxyModeMihomo: "Mihomo/VPN kernel",
         codexTicketProxyModeStatic: "Static residential proxy",
         codexTicketProxyMihomoEndpoint: "Kernel local endpoint",
+        codexTicketProxyMihomoSelected: 'Mihomo selected for ticket harvesting. Click "Save Settings" to apply.',
         codexTicketProxyMihomoHint:
           "Uses the Mihomo airport subscription running on this server. Run install-mihomo-codex.sh from the release package first; normal account proxies are unchanged.",
         codexClientRestrictionTitle: "Codex client restriction",

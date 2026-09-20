@@ -7,6 +7,7 @@ import enSettings from "@/i18n/locales/en/admin/settings";
 import zhCommon from "@/i18n/locales/zh/common";
 import zhSettings from "@/i18n/locales/zh/admin/settings";
 import SettingsView from "../SettingsView.vue";
+import { apiClient } from "@/api/client";
 
 const {
   getSettings,
@@ -853,6 +854,33 @@ describe("admin SettingsView payment visible method controls", () => {
       .toBe("socks5h://user:new-secret@new.example.com:1080");
     expect(updateSettings.mock.calls[0]?.[0]).not.toHaveProperty("openai_codex_ticket_harvest_proxy_configured");
     wrapper.unmount();
+  });
+
+  it("confirms Mihomo proxy selection and applies it only when settings are saved", async () => {
+    const endpoint = "http://127.0.0.1:3101";
+    const getStatus = vi.spyOn(apiClient, "get").mockResolvedValue({ data: {
+      installed: true, supported: true, running: true, busy: false,
+      nodes: 1, subscriptions: 1, phase: "running", endpoint,
+    } });
+    const wrapper = mountView();
+    try {
+      await flushPromises();
+      await wrapper.get('input[name="codex-ticket-proxy-mode"][value="mihomo"]').setValue(true);
+      await flushPromises();
+      const button = wrapper.findAll("button").find(node => node.text() === "设为打票代理");
+      expect(button).toBeDefined();
+      await button!.trigger("click");
+      expect(showSuccess).toHaveBeenCalledWith("admin.settings.gatewayForwarding.codexTicketProxyMihomoSelected");
+      expect(updateSettings).not.toHaveBeenCalled();
+      await wrapper.find("form").trigger("submit.prevent");
+      await flushPromises();
+      expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+        openai_codex_ticket_harvest_proxy_url: endpoint,
+      }));
+    } finally {
+      wrapper.unmount();
+      getStatus.mockRestore();
+    }
   });
 
   it("does not activate an unverified Mihomo endpoint just by selecting the mode", async () => {

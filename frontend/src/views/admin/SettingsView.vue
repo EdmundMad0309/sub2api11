@@ -4639,7 +4639,7 @@
                       <span>{{ t("admin.settings.gatewayForwarding.codexTicketProxyMihomoEndpoint") }}</span>
                       <code class="rounded bg-white/70 px-1.5 py-0.5 font-mono text-xs dark:bg-dark-800/70">{{ CODEX_TICKET_MIHOMO_PROXY_URL }}</code>
                     </div>
-                    <MihomoSettings @ready="form.openai_codex_ticket_harvest_proxy_url = $event" />
+                    <MihomoSettings @ready="selectMihomoHarvestProxy" />
                   </div>
                   <input
                     v-else
@@ -11011,6 +11011,11 @@ const codexTicketStaticProxyDraft = ref("");
 
 function isCodexTicketMihomoProxyURL(value: string): boolean {
   return value.trim().replace(/\/+$/, "") === CODEX_TICKET_MIHOMO_PROXY_URL;
+}
+
+function selectMihomoHarvestProxy(endpoint: string): void {
+  form.openai_codex_ticket_harvest_proxy_url = endpoint;
+  appStore.showSuccess(t("admin.settings.gatewayForwarding.codexTicketProxyMihomoSelected"));
 }
 
 function syncCodexTicketProxyMode(): void {

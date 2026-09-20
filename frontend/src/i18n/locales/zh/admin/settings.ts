@@ -554,6 +554,7 @@ export default {
         codexTicketProxyModeMihomo: 'Mihomo/VPN 内核',
         codexTicketProxyModeStatic: '静态住宅代理',
         codexTicketProxyMihomoEndpoint: '内核本地出口',
+        codexTicketProxyMihomoSelected: '已选择 Mihomo 打票代理，请点击“保存设置”后生效。',
         codexTicketProxyMihomoHint:
           '使用服务器上的 Mihomo 机场订阅轮换出口。请先运行发布包中的 install-mihomo-codex.sh，日常业务代理不受影响。',
         codexClientRestrictionTitle: 'Codex 客户端限制',
