@@ -194,12 +194,12 @@ func TestOpenAITurnAdmissionFailureInvalidatesOnlyCurrentSessionState(t *testing
 	store := NewOpenAIWSStateStore(nil)
 	s := &OpenAIGatewayService{openaiWSStateStore: store}
 
-	store.BindResponseAccount(context.Background(), groupID, "resp_rejected", 901, time.Hour)
+	require.NoError(t, store.BindResponseAccount(context.Background(), groupID, "resp_rejected", 901, time.Hour))
 	store.BindResponseConn("resp_rejected", "conn-rejected", time.Hour)
 	store.BindSessionTurnState(groupID, "session-rejected", "turn-state", time.Hour)
 	store.BindSessionConn(groupID, "session-rejected", "conn-rejected", time.Hour)
 
-	store.BindResponseAccount(context.Background(), groupID, "resp-unrelated", 902, time.Hour)
+	require.NoError(t, store.BindResponseAccount(context.Background(), groupID, "resp-unrelated", 902, time.Hour))
 	store.BindResponseConn("resp-unrelated", "conn-unrelated", time.Hour)
 	store.BindSessionTurnState(groupID, "session-unrelated", "turn-state", time.Hour)
 	store.BindSessionConn(groupID, "session-unrelated", "conn-unrelated", time.Hour)
@@ -241,7 +241,7 @@ func TestOpenAITurnAdmissionFailureDoesNotClearStateOnControlPlaneReadError(t *t
 	const groupID int64 = 42
 	store := NewOpenAIWSStateStore(nil)
 	s := &OpenAIGatewayService{openaiWSStateStore: store}
-	store.BindResponseAccount(context.Background(), groupID, "resp-read-error", 903, time.Hour)
+	require.NoError(t, store.BindResponseAccount(context.Background(), groupID, "resp-read-error", 903, time.Hour))
 	store.BindSessionConn(groupID, "session-read-error", "conn-read-error", time.Hour)
 
 	s.invalidateOpenAIWSTurnStateAfterAdmissionFailure(

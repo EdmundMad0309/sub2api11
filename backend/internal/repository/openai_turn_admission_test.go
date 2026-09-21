@@ -17,9 +17,9 @@ func TestOpenAITurnAdmissionReadTransaction(t *testing.T) {
 		t.Run(failure, func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 			client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
-			defer client.Close()
+			defer func() { _ = client.Close() }()
 			repo := &accountRepository{client: client}
 			mock.ExpectBegin()
 			query := mock.ExpectQuery(`SELECT .* FROM "accounts"`)

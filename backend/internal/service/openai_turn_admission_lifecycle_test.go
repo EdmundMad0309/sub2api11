@@ -78,7 +78,7 @@ func TestOpenAITurnAdmissionDrainsCurrentRejectsNext(t *testing.T) {
 				defer server.Close()
 				client, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
 				require.NoError(t, err)
-				defer client.CloseNow()
+				defer func() { _ = client.CloseNow() }()
 				write := func(model string) {
 					require.NoError(t, client.Write(ctx, coderws.MessageText,
 						[]byte(fmt.Sprintf(`{"type":"response.create","model":%q,"input":"synthetic"}`, model))))
