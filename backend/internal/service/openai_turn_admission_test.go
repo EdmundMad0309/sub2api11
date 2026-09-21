@@ -268,7 +268,7 @@ func TestOpenAITurnAdmissionFailureCleanupUnwrapsClientCloseError(t *testing.T) 
 	store := NewOpenAIWSStateStore(nil)
 	s := &OpenAIGatewayService{openaiWSStateStore: store}
 
-	store.BindResponseAccount(context.Background(), groupID, responseID, 904, time.Hour)
+	require.NoError(t, store.BindResponseAccount(context.Background(), groupID, responseID, 904, time.Hour))
 	store.BindResponseConn(responseID, "conn-wrapped-admission", time.Hour)
 	store.BindSessionTurnState(groupID, sessionHash, "turn-state-wrapped", time.Hour)
 	store.BindSessionConn(groupID, sessionHash, "conn-wrapped-admission", time.Hour)
