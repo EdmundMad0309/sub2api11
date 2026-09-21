@@ -257,6 +257,10 @@ func recordCodexHarvestNode(now, groupType string, allCount int) {
 	if now == "" {
 		return
 	}
+	// Mihomo's controller reports the stable node ID in connection chains.
+	// Resolve the operator-facing label before persisting the flow event; the
+	// resolver falls back to the ID when the managed snapshot has no label.
+	now = mihomo.NodeDisplayName(now)
 	defaultCodexHarvestFlow.mu.Lock()
 	if allCount > 0 {
 		defaultCodexHarvestFlow.lastAll = allCount
