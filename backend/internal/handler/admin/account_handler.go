@@ -66,13 +66,9 @@ type AccountHandler struct {
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
 	ollamaCloudUsage        *service.OllamaCloudUsageService
 	codexTicketSettings     *service.SettingService
+	codexHarvest            *service.CodexHarvestService
 	openAIGatewayService    *service.OpenAIGatewayService
 	cfg                     *config.Config
-}
-
-// SetOpenAIGatewayService attaches the gateway service for manual harvest actions.
-func (h *AccountHandler) SetOpenAIGatewayService(gw *service.OpenAIGatewayService) {
-	h.openAIGatewayService = gw
 }
 
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.
@@ -87,6 +83,10 @@ func (h *AccountHandler) SetOllamaCloudUsageService(usage *service.OllamaCloudUs
 // SetCodexTicketSettings supplies the live policy without mutating shared config.
 func (h *AccountHandler) SetCodexTicketSettings(settings *service.SettingService) {
 	h.codexTicketSettings = settings
+}
+
+func (h *AccountHandler) SetOpenAIGatewayService(gateway *service.OpenAIGatewayService) {
+	h.openAIGatewayService = gateway
 }
 
 // NewAccountHandler creates a new admin account handler
