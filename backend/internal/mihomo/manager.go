@@ -83,19 +83,20 @@ type saved struct {
 }
 
 type Manager struct {
-	countryLookupURL string // test-only override; administrators cannot change the lookup target
-	controllerURL    string // optional override for isolated controller tests
-	gate             chan struct{}
-	mu               sync.Mutex
-	dir              string
-	state            Status
-	saved            saved
-	cmd              *exec.Cmd
-	done             chan struct{}
-	cancel           context.CancelFunc
-	closed           bool
-	wg               sync.WaitGroup
-	client           *http.Client
+	countryLookupURL     string // test-only override; administrators cannot change the lookup target
+	controllerURL        string // optional override for isolated controller tests
+	subscriptionProxyURL string // test-only override for subscription download proxy
+	gate                 chan struct{}
+	mu                   sync.Mutex
+	dir                  string
+	state                Status
+	saved                saved
+	cmd                  *exec.Cmd
+	done                 chan struct{}
+	cancel               context.CancelFunc
+	closed               bool
+	wg                   sync.WaitGroup
+	client               *http.Client
 }
 
 func New(dir string) *Manager {
@@ -447,6 +448,35 @@ func (m *Manager) get(ctx context.Context, address string, limit int64, ua strin
 	return b, nil
 }
 
+func (m *Manager) getViaProxy(ctx context.Context, address string, limit int64, ua, proxyAddress string) ([]byte, error) {
+	proxyURL, err := url.Parse(proxyAddress)
+	if err != nil || proxyURL.Scheme == "" || proxyURL.Host == "" {
+		return nil, errors.New("invalid subscription proxy")
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = http.ProxyURL(proxyURL)
+	client := &http.Client{Transport: transport, Timeout: m.client.Timeout}
+	defer client.CloseIdleConnections()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
+	if err != nil {
+		return nil, errors.New("invalid download address")
+	}
+	req.Header.Set("User-Agent", ua)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, errors.New("download failed")
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download returned HTTP %d", resp.StatusCode)
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil || int64(len(b)) > limit {
+		return nil, errors.New("download incomplete or too large")
+	}
+	return b, nil
+}
+
 func (m *Manager) install(ctx context.Context) error {
 	asset := "mihomo-linux-" + runtime.GOARCH + "-" + Version + ".gz"
 	if runtime.GOARCH == "amd64" {
@@ -501,8 +531,23 @@ func (m *Manager) fetchNodes(ctx context.Context, urls []string) ([]map[string]a
 	nodes := []map[string]any{}
 	names := map[string]string{}
 	seen := map[string]bool{}
+	proxy := ""
+	m.mu.Lock()
+	if m.state.Running {
+		proxy = m.subscriptionProxyURL
+		if proxy == "" {
+			proxy = Endpoint
+		}
+	}
+	m.mu.Unlock()
 	for _, address := range urls {
-		b, err := m.get(ctx, address, 4<<20, "clash.meta")
+		var b []byte
+		var err error
+		if proxy != "" {
+			b, err = m.getViaProxy(ctx, address, 4<<20, "clash.meta", proxy)
+		} else {
+			b, err = m.get(ctx, address, 4<<20, "clash.meta")
+		}
 		if err != nil {
 			return nil, nil, err
 		}
