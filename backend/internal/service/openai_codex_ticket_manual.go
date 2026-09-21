@@ -147,10 +147,14 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(ctx context.Context, req Man
 				}
 				continue
 			}
+			nodeName := strings.TrimSpace(lease.node.Name)
+			if nodeName == "" {
+				nodeName = mihomo.NodeDisplayName(strings.TrimSpace(peekCodexHarvestExit()))
+			}
 			if forceSwitch && keepID != "" && lease.node.ID != "" && lease.node.ID == keepID && len(tried) > 1 {
-				emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Node: lease.node.Name, Result: "node_switch", Level: "WARN", Message: "定向池里暂时没有新的节点，继续使用当前出口。", TicketsStored: ticketsStored})
-			} else if forceSwitch && lease.node.Name != "" {
-				emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Node: lease.node.Name, Result: "node_switch", Level: "INFO", Message: "已切换到节点 " + lease.node.Name, TicketsStored: ticketsStored})
+				emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Node: nodeName, Result: "node_switch", Level: "WARN", Message: "定向池里暂时没有新的节点，继续使用当前出口。", TicketsStored: ticketsStored})
+			} else if forceSwitch && nodeName != "" {
+				emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Node: nodeName, Result: "node_switch", Level: "INFO", Message: "已切换到节点 " + nodeName, TicketsStored: ticketsStored})
 			}
 			keepID = lease.node.ID
 			forceSwitch = req.NodeSwitchRule == ManualHarvestNodeSwitchEveryRequest
@@ -159,7 +163,7 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(ctx context.Context, req Man
 			if tokenErr != nil || strings.TrimSpace(token) == "" {
 				lease.release()
 				consecutiveFails++
-				emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Node: lease.node.Name, Result: "error", Level: "ERROR", Message: "无法获取该账号的登录令牌，本次尝试已跳过", Detail: fmt.Sprintf("get access token failed: %v", tokenErr), TicketsStored: ticketsStored})
+				emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Node: nodeName, Result: "error", Level: "ERROR", Message: "无法获取该账号的登录令牌，本次尝试已跳过", Detail: fmt.Sprintf("get access token failed: %v", tokenErr), TicketsStored: ticketsStored})
 				if waitErr := waitManualHarvest(ctx, req.ProbeIntervalSeconds); waitErr != nil {
 					return waitErr
 				}
@@ -175,7 +179,7 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(ctx context.Context, req Man
 			if result.Err != nil {
 				raw = result.Err.Error()
 			}
-			message, level, detail := describeCodexHarvestOutcome(result.Kind, raw, result.Status, length, blocks, expectedLength, expectedBlocks, model, lease.node.Name)
+			message, level, detail := describeCodexHarvestOutcome(result.Kind, raw, result.Status, length, blocks, expectedLength, expectedBlocks, model, nodeName)
 			progressResult := "error"
 			switch result.Kind {
 			case "success":
@@ -185,7 +189,7 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(ctx context.Context, req Man
 			case "rate_limited":
 				progressResult = "rate_limited"
 			}
-			recordCodexHarvestProbe(account, model, result.Kind, lease.node.Name, raw, result.Status, length, blocks, expectedLength, expectedBlocks)
+			recordCodexHarvestProbe(account, model, result.Kind, nodeName, raw, result.Status, length, blocks, expectedLength, expectedBlocks)
 
 			if result.Kind == "success" {
 				consecutiveFails = 0
@@ -197,18 +201,18 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(ctx context.Context, req Man
 				s.openaiCodexTicketProbeCooldown.Delete(openAICodexTicketKey(account.ID, model))
 				ticketsStored++
 				got[model] = struct{}{}
-				emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Node: lease.node.Name, HTTPStatus: result.Status, Length: length, Blocks: blocks, ExpectedLen: expectedLength, ExpectedBlk: expectedBlocks, Result: progressResult, Level: "OK", Message: message, Detail: detail, TicketsStored: ticketsStored})
+				emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Node: nodeName, HTTPStatus: result.Status, Length: length, Blocks: blocks, ExpectedLen: expectedLength, ExpectedBlk: expectedBlocks, Result: progressResult, Level: "OK", Message: message, Detail: detail, TicketsStored: ticketsStored})
 				if manualHarvestRunComplete(req.StopOnSuccess, req.Models, got) {
 					msg := "全部目标模型已出票，手动打票结束。"
 					if req.StopOnSuccess {
 						msg = "达成出票即停条件，手动打票结束。"
 					}
-					emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Node: lease.node.Name, Result: "hit", Level: "OK", TicketsStored: ticketsStored, Done: true, Message: msg})
+					emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Node: nodeName, Result: "hit", Level: "OK", TicketsStored: ticketsStored, Done: true, Message: msg})
 					return nil
 				}
 			} else {
 				consecutiveFails++
-				emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Node: lease.node.Name, HTTPStatus: result.Status, Length: length, Blocks: blocks, ExpectedLen: expectedLength, ExpectedBlk: expectedBlocks, Result: progressResult, Level: level, Message: message, Detail: detail, TicketsStored: ticketsStored})
+				emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Node: nodeName, HTTPStatus: result.Status, Length: length, Blocks: blocks, ExpectedLen: expectedLength, ExpectedBlk: expectedBlocks, Result: progressResult, Level: level, Message: message, Detail: detail, TicketsStored: ticketsStored})
 				if result.Kind == "account_error" {
 					emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Result: "error", Level: "ERROR", TicketsStored: ticketsStored, Done: true, Message: message, Detail: detail})
 					return nil
@@ -216,7 +220,7 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(ctx context.Context, req Man
 			}
 
 			if result.Kind != "success" && manualHarvestShouldSwitch(req.NodeSwitchRule, consecutiveFails, result.Kind, length, blocks) {
-				emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Node: lease.node.Name, Result: "node_switch", Level: "WARN", Message: fmt.Sprintf("按规则 %s 准备换节点（连续失败 %d）。", req.NodeSwitchRule, consecutiveFails), TicketsStored: ticketsStored})
+				emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Node: nodeName, Result: "node_switch", Level: "WARN", Message: fmt.Sprintf("按规则 %s 准备换节点（连续失败 %d）。", req.NodeSwitchRule, consecutiveFails), TicketsStored: ticketsStored})
 				forceSwitch = true
 				consecutiveFails = 0
 			}
