@@ -449,7 +449,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			if reasoningEffort != nil {
 				effort = *reasoningEffort
 			}
-			result, handleErr := s.handleStreamingResponsePassthrough(ctx, resp, c, account, startTime, reqModel, upstreamPassthroughModel, effort)
+			result, handleErr := s.handleStreamingResponsePassthroughWithImage(ctx, resp, c, account, startTime, reqModel, upstreamPassthroughModel, imageBillingModel, effort)
 			if handleErr != nil {
 				if retryBody, fallbackModel, retry := s.applyOpenAIPassthroughCompactFallbackFromSignal(
 					c, account, requestedModel, body, handleErr, compactModelFallbackRetried, resp,
@@ -1859,6 +1859,30 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	mappedModel string,
 	reasoningEfforts ...string,
 ) (*openaiStreamingResultPassthrough, error) {
+	return s.handleStreamingResponsePassthroughWithImage(
+		ctx,
+		resp,
+		c,
+		account,
+		startTime,
+		originalModel,
+		mappedModel,
+		"",
+		reasoningEfforts...,
+	)
+}
+
+func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithImage(
+	ctx context.Context,
+	resp *http.Response,
+	c *gin.Context,
+	account *Account,
+	startTime time.Time,
+	originalModel string,
+	mappedModel string,
+	imageBillingModel string,
+	reasoningEfforts ...string,
+) (*openaiStreamingResultPassthrough, error) {
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
@@ -2008,10 +2032,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			documentScanner.firstOutputDeadline = startTime.Add(timeout)
 		}
 	}
-	streamInterval := time.Duration(0)
-	if s.cfg != nil && s.cfg.Gateway.StreamDataIntervalTimeout > 0 {
-		streamInterval = time.Duration(s.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
-	}
+	streamInterval := s.openAIPassthroughStreamDataInterval(imageBillingModel)
 	heartbeat := func() {
 		if clientDisconnected || clientOutputStarted || failureDelivered {
 			return
@@ -2282,6 +2303,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				_, writeErr := fmt.Fprint(w, buildOpenAIResponseFailedSSE(responseID, originalModel, nil, "Upstream stream timed out"))
 				if writeErr == nil {
 					flusher.Flush()
+					// The timeout event is the terminal response. Tell the
+					// handler not to append a second failure event.
+					MarkResponseCommitted(c)
 				}
 			}
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", err)
@@ -2335,6 +2359,19 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	logOpenAISuccessMissingUsage(ctx, c, account, resp, usage, terminalEventType, clientDisconnected)
 
 	return resultWithUsage(), nil
+}
+
+func (s *OpenAIGatewayService) openAIPassthroughStreamDataInterval(imageBillingModel string) time.Duration {
+	if imageBillingModel != "" {
+		// Image-generation passthroughs can legitimately remain silent much
+		// longer than text streams. Keep them aligned with the dedicated image
+		// endpoint instead of applying the ordinary 180s interval.
+		return s.openAIImageStreamDataInterval()
+	}
+	if s != nil && s.cfg != nil && s.cfg.Gateway.StreamDataIntervalTimeout > 0 {
+		return time.Duration(s.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
+	}
+	return 0
 }
 
 func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(

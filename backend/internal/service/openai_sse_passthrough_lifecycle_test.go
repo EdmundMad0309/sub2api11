@@ -91,10 +91,23 @@ func TestOpenAISSEReadPumpFullForwardSilence(t *testing.T) {
 		require.Empty(t, got.result.UpstreamTerminalEvent, "local timeout is not an upstream terminal")
 		require.Contains(t, recorder.Body.String(), "response.failed")
 		require.NotContains(t, recorder.Body.String(), "response.completed")
+		require.True(t, IsResponseCommitted(c), "local timeout terminal must be visible to the handler")
 		require.Nil(t, a.TempUnschedulableUntil)
 	case <-time.After(3 * time.Second):
 		unblock()
 		<-done
 		t.Fatal("silent stream exceeded configured interval")
 	}
+}
+
+func TestOpenAIPassthroughStreamDataIntervalUsesImageTimeout(t *testing.T) {
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{Gateway: config.GatewayConfig{
+			StreamDataIntervalTimeout:      180,
+			ImageStreamDataIntervalTimeout: 900,
+		}},
+	}
+
+	require.Equal(t, 180*time.Second, svc.openAIPassthroughStreamDataInterval(""))
+	require.Equal(t, 900*time.Second, svc.openAIPassthroughStreamDataInterval("gpt-image-1"))
 }
