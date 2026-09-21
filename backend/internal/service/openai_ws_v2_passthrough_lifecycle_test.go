@@ -280,7 +280,7 @@ func TestPassthroughLifecycle_AdmissionFailureClearsResponseAffinity(t *testing.
 	stateStore := NewOpenAIWSStateStore(nil)
 	svc.openaiWSStateStore = stateStore
 	const responseID = "resp_passthrough_admission_rejected"
-	stateStore.BindResponseAccount(context.Background(), 0, responseID, account.ID, time.Hour)
+	require.NoError(t, stateStore.BindResponseAccount(context.Background(), 0, responseID, account.ID, time.Hour))
 	stateStore.BindResponseConn(responseID, "conn-passthrough-admission", time.Hour)
 
 	server, serverErr := startPassthroughLifecycleServer(t, controlCtx, svc, account)

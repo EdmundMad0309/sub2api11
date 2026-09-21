@@ -80,7 +80,7 @@ func TestOpenAIWSHTTPBridgeAdmissionFailureClearsStickyState(t *testing.T) {
 	latest.Schedulable = false
 
 	stateStore := NewOpenAIWSStateStore(nil)
-	stateStore.BindResponseAccount(context.Background(), groupID, responseID, accountID, time.Hour)
+	require.NoError(t, stateStore.BindResponseAccount(context.Background(), groupID, responseID, accountID, time.Hour))
 	stateStore.BindResponseConn(responseID, "conn-bridge-rejected", time.Hour)
 	stateStore.BindSessionTurnState(groupID, sessionHash, "turn-bridge-rejected", time.Hour)
 	stateStore.BindSessionConn(groupID, sessionHash, "conn-bridge-rejected", time.Hour)
