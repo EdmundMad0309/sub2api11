@@ -231,7 +231,14 @@ func (m *Manager) Submit(action string, urls []string, appendURLs bool, filters 
 		m.state.Busy = false
 		if err != nil {
 			m.state.Error = err.Error()
-			m.state.Phase = "failed"
+			// A failed subscription/configuration operation does not imply that
+			// the previously loaded kernel stopped. Keep the runtime state
+			// truthful while exposing the operation error to the admin UI.
+			if m.state.Running {
+				m.state.Phase = "running"
+			} else {
+				m.state.Phase = "failed"
+			}
 		} else if m.state.Running {
 			m.state.Phase = "running"
 		} else {

@@ -71,6 +71,23 @@ func TestFailedSubscriptionPreservesSavedConfiguration(t *testing.T) {
 	require.True(t, os.IsNotExist(err))
 }
 
+func TestFailedSubscriptionKeepsRunningPhase(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusForbidden) }))
+	defer server.Close()
+	m := New(t.TempDir())
+	t.Cleanup(m.Close)
+	m.state.Installed = true
+	m.state.Running = true
+	m.saved = saved{URLs: []string{"https://old.example/sub"}, Nodes: []map[string]any{{"name": "node-one", "type": "socks5", "server": "example.org", "port": 1080}}}
+
+	require.NoError(t, m.Submit("apply", []string{server.URL}, false))
+	require.Eventually(t, func() bool { return !m.Status().Busy }, 2*time.Second, 10*time.Millisecond)
+	status := m.Status()
+	require.True(t, status.Running)
+	require.Equal(t, "running", status.Phase)
+	require.Contains(t, status.Error, "HTTP 403")
+}
+
 func TestTasksSerializeAndCancel(t *testing.T) {
 	started := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { close(started); <-r.Context().Done() }))
