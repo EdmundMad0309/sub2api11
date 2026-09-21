@@ -61,7 +61,7 @@ func TestOpenAISSEReadPumpCancelAndBoundedQueue(t *testing.T) {
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				defer writer.Close()
+				defer func() { _ = writer.Close() }()
 				if input != "" {
 					_, _ = io.WriteString(writer, input)
 				} else {
