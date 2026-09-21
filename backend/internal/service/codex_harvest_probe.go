@@ -4,20 +4,16 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/mihomo"
 	"github.com/google/uuid"
 )
-
-var harvestProbeSessions sync.Map
 
 type codexHarvestProbeResult struct {
 	State      string
@@ -27,56 +23,6 @@ type codexHarvestProbeResult struct {
 	Shape      openAICodexTicketShape
 	Kind       string
 	Sent       bool
-}
-
-func harvestProbeSessionKey(accountID int64, nodeID, proxy string) string {
-	id := strings.TrimSpace(nodeID)
-	if id == "" {
-		id = strings.TrimSpace(proxy)
-	}
-	if accountID <= 0 || id == "" {
-		return ""
-	}
-	return fmt.Sprintf("%d\x00%s", accountID, id)
-}
-
-func harvestProbeSessionID(accountID int64, nodeID, proxy, persisted string) string {
-	key := harvestProbeSessionKey(accountID, nodeID, proxy)
-	if persisted = strings.TrimSpace(persisted); persisted != "" {
-		if key != "" {
-			harvestProbeSessions.Store(key, persisted)
-		}
-		return persisted
-	}
-	if key == "" {
-		return uuid.NewString()
-	}
-	if value, ok := harvestProbeSessions.Load(key); ok {
-		if session, _ := value.(string); session != "" {
-			return session
-		}
-	}
-	session := uuid.NewString()
-	actual, loaded := harvestProbeSessions.LoadOrStore(key, session)
-	if loaded {
-		if existing, _ := actual.(string); existing != "" {
-			return existing
-		}
-	}
-	return session
-}
-
-func harvestTicketSession(ticket *openAICodexTicket, attempt codexHarvestAttempt) string {
-	if ticket == nil || strings.TrimSpace(ticket.HarvestSessionID) == "" {
-		return ""
-	}
-	if attempt.node.ID != "" && ticket.HarvestNodeID == attempt.node.ID {
-		return ticket.HarvestSessionID
-	}
-	if attempt.node.ID == "" && ticket.HarvestProxyURL != "" && ticket.HarvestProxyURL == attempt.proxy {
-		return ticket.HarvestSessionID
-	}
-	return ""
 }
 
 func bindCodexHarvestEgress(ticket *openAICodexTicket, attempt codexHarvestAttempt, session string) {
@@ -91,15 +37,10 @@ func bindCodexHarvestEgress(ticket *openAICodexTicket, attempt codexHarvestAttem
 }
 
 func (s *OpenAIGatewayService) harvestAttemptSession(account *Account, model string, attempt codexHarvestAttempt) string {
-	persisted := ""
-	if account != nil {
-		persisted = harvestTicketSession(s.lookupOpenAICodexTicket(account, model), attempt)
-	}
-	var accountID int64
-	if account != nil {
-		accountID = account.ID
-	}
-	return harvestProbeSessionID(accountID, attempt.node.ID, attempt.proxy, persisted)
+	// Every new ping starts a new upstream conversation. Reusing the old
+	// ticket's session (or caching one by proxy) makes a refreshed ticket look
+	// like a continuation of the previous lineage and can turn a 292 into 312.
+	return uuid.NewString()
 }
 
 func (s *OpenAIGatewayService) executeCodexHarvestProbe(ctx context.Context, account *Account, token, model, proxy string, timeout time.Duration, reserve func() bool, sessionID string) (result codexHarvestProbeResult) {
@@ -110,8 +51,8 @@ func (s *OpenAIGatewayService) executeCodexHarvestProbe(ctx context.Context, acc
 	defer func() { release(result.Kind == "success") }()
 	attempt, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	if strings.TrimSpace(sessionID) == "" && account != nil {
-		sessionID = harvestProbeSessionID(account.ID, "", proxy, "")
+	if strings.TrimSpace(sessionID) == "" {
+		sessionID = uuid.NewString()
 	}
 	result = s.requestCodexHarvestProbe(attempt, account, token, model, proxy, reserve, sessionID)
 	result.Shape, result.Kind = classifyCodexHarvestProbe(ctx, account, s.openAICodexTicketConfig(), result)

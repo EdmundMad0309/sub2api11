@@ -785,7 +785,9 @@ func (s *OpenAIGatewayService) openAICodexTicketShouldYieldSticky(ctx context.Co
 }
 
 func (s *OpenAIGatewayService) fireOpenAICodexTicketProbe(ctx context.Context, account *Account, token, model, proxyURL string, attemptTimeout time.Duration) (state string, status int, err error) {
-	result := s.executeCodexHarvestProbe(ctx, account, token, model, proxyURL, attemptTimeout, nil, harvestProbeSessionID(account.ID, "", proxyURL, ""))
+	// A fresh probe must start a fresh upstream session. The resulting ticket
+	// carries that session for later conversation egress.
+	result := s.executeCodexHarvestProbe(ctx, account, token, model, proxyURL, attemptTimeout, nil, "")
 	return result.State, result.Status, result.Err
 }
 
