@@ -575,7 +575,7 @@ func (s *OpenAIGatewayService) ForwardImages(
 	if mapped := strings.TrimSpace(channelMappedModel); mapped != "" {
 		requestModel = mapped
 	}
-	latest, admissionErr := s.admitOpenAITurn(ctx, c, account, requestModel)
+	latest, admissionErr := s.admitOpenAITurn(context.WithoutCancel(ctx), c, account, requestModel)
 	if admissionErr != nil {
 		return nil, admissionErr
 	}

@@ -72,7 +72,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	compatPromptCacheTenantIsolated bool,
 ) (*OpenAIForwardResult, error) {
 	latest, admissionErr := s.admitOpenAITurn(
-		ctx,
+		context.WithoutCancel(ctx),
 		c,
 		account,
 		gjson.GetBytes(body, "model").String(),

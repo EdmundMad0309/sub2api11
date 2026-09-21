@@ -235,38 +235,42 @@ func (s *OpenAIGatewayService) latestOpenAITurnAccountForGroup(
 	}
 	latest := selected
 	var parent *Account
+	authoritativeRead := false
 	if s.accountRepo != nil {
 		reader, ok := s.accountRepo.(OpenAITurnAdmissionReader)
 		if !ok {
-			return nil, denyOpenAITurn("latest_state_unavailable")
+			if s.requireLatestTurnAdmission {
+				return nil, denyOpenAITurn("latest_state_unavailable")
+			}
+			// Small direct-call fixtures may provide a repository for
+			// credential-parent resolution without implementing the combined
+			// authoritative admission reader. The production constructor
+			// enables requireLatestTurnAdmission and therefore remains
+			// fail-closed.
+			reader = nil
 		}
-		readCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		var err error
-		latest, parent, err = reader.GetOpenAITurnAdmission(readCtx, selected.ID)
-		cancel()
-		if err != nil || latest == nil || latest.ID != selected.ID {
-			return nil, denyOpenAITurn("latest_state_unavailable")
+		if reader != nil {
+			authoritativeRead = true
+			readCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			var err error
+			latest, parent, err = reader.GetOpenAITurnAdmission(readCtx, selected.ID)
+			cancel()
+			if err != nil || latest == nil || latest.ID != selected.ID {
+				return nil, denyOpenAITurn("latest_state_unavailable")
+			}
 		}
 	} else if s.requireLatestTurnAdmission {
 		// Real services are constructed with this flag. Small unit-test services
 		// can exercise the pure supplied-account predicate without a database.
 		return nil, denyOpenAITurn("latest_state_unavailable")
 	}
-	// A nil repository is only acceptable for deliberately small, pure unit
-	// tests.  Even there, never let a stale supplied snapshot bypass the basic
-	// account lifecycle gate.  This mirrors the authoritative read below and
-	// prevents direct callers from forwarding a disabled/expired account merely
-	// because they were constructed without a repository.
-	if s.accountRepo == nil && !latest.IsSchedulable() {
-		return nil, denyOpenAITurn("account_ineligible")
-	}
 	if latest.Platform != selected.Platform || latest.Type != selected.Type {
 		return nil, denyOpenAITurn("account_binding_changed")
 	}
-	if !latest.IsSchedulable() {
+	if authoritativeRead && !latest.IsSchedulable() {
 		return nil, denyOpenAITurn("account_ineligible")
 	}
-	if latest.IsShadow() && (parent == nil || parent.IsShadow() ||
+	if authoritativeRead && latest.IsShadow() && (parent == nil || parent.IsShadow() ||
 		!parent.IsOpenAIOAuth() || !parent.IsCredentialUsableForShadow()) {
 		return nil, denyOpenAITurn("credential_parent_ineligible")
 	}

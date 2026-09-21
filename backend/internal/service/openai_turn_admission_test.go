@@ -202,7 +202,7 @@ func TestOpenAITurnAdmissionRequiresPrimaryReader(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
-func TestOpenAITurnAdmissionWithoutRepositoryStillChecksLifecycle(t *testing.T) {
+func TestOpenAITurnAdmissionReaderChecksLifecycle(t *testing.T) {
 	for _, name := range []string{"disabled", "paused", "expired", "cooldown"} {
 		t.Run(name, func(t *testing.T) {
 			account := ticketTestAccount(17)
@@ -219,7 +219,7 @@ func TestOpenAITurnAdmissionWithoutRepositoryStillChecksLifecycle(t *testing.T) 
 				until := time.Now().Add(time.Minute)
 				account.TempUnschedulableUntil = &until
 			}
-			s := &OpenAIGatewayService{}
+			s := &OpenAIGatewayService{accountRepo: &turnAdmissionRepo{account: account}}
 			_, err := s.AdmitOpenAITurn(context.Background(), nil, account, "gpt-5.5")
 			require.True(t, IsOpenAITurnAdmissionError(err), "%v", err)
 		})

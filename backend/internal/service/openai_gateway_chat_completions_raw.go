@@ -68,7 +68,12 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return nil, fmt.Errorf("missing model in request")
 	}
-	latest, admissionErr := s.admitOpenAITurn(ctx, c, account, originalModel)
+	// Raw Chat Completions deliberately keeps draining after the client has
+	// disconnected so upstream usage can still be reconciled. Use a detached
+	// control-plane context for the pre-send admission as well; otherwise a
+	// client cancellation would prevent the request from reaching the same
+	// drain path that existed before admission was added.
+	latest, admissionErr := s.admitOpenAITurn(context.WithoutCancel(ctx), c, account, originalModel)
 	if admissionErr != nil {
 		return nil, admissionErr
 	}

@@ -34,7 +34,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
 	latest, admissionErr := s.admitOpenAITurn(
-		ctx,
+		context.WithoutCancel(ctx),
 		c,
 		account,
 		gjson.GetBytes(body, "model").String(),
