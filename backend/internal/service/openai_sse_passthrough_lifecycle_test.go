@@ -38,7 +38,8 @@ func TestOpenAISSEReadPumpFullForwardSilence(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"one partial output\",\"usage\":{\"input_tokens\":4,\"output_tokens\":2}}\n\n")
-		w.(http.Flusher).Flush()
+		flusher := w.(http.Flusher)
+		flusher.Flush()
 		close(entered)
 		select {
 		case <-r.Context().Done():

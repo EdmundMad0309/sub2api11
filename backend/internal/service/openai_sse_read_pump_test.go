@@ -13,7 +13,7 @@ import (
 
 func TestOpenAISSEReadPumpSilentHeartbeatAndJoin(t *testing.T) {
 	reader, writer := io.Pipe()
-	defer writer.Close()
+	defer func() { _ = writer.Close() }()
 	pump := newOpenAISSEReadPump(reader, 1024)
 	defer pump.Close()
 	beats := time.NewTicker(5 * time.Millisecond)
@@ -40,7 +40,7 @@ func TestOpenAISSEReadPumpFragmentedDocumentIsActivity(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		defer writer.Close()
+		defer func() { _ = writer.Close() }()
 		for _, piece := range []string{`data: {"type":`, `"response.output_text.delta",`, `"delta":`, `"fragmented"}`, "\n\n"} {
 			if _, err := io.WriteString(writer, piece); err != nil {
 				return
@@ -90,7 +90,7 @@ func TestOpenAISSEReadPumpFirstOutputDeadlineNotExtendedByComments(t *testing.T)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		defer writer.Close()
+		defer func() { _ = writer.Close() }()
 		for {
 			if _, err := io.WriteString(writer, ": upstream heartbeat\n\n"); err != nil {
 				return

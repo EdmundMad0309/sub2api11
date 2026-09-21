@@ -2036,7 +2036,14 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		}
 	}
 
-	for documentScanner.Next(ctx, streamInterval, keepaliveCh, heartbeat) {
+	// The upstream request is deliberately detached from the client request
+	// context (see the request construction above). Keep the read pump on the
+	// same detached lifecycle: once the upstream request was sent, a client
+	// disconnect must stop downstream writes but must not cancel the upstream
+	// read before usage/terminal events can be collected and settled.
+	upstreamReadCtx, releaseUpstreamReadCtx := detachStreamUpstreamContext(ctx, true)
+	defer releaseUpstreamReadCtx()
+	for documentScanner.Next(upstreamReadCtx, streamInterval, keepaliveCh, heartbeat) {
 		line := documentScanner.Text()
 		if eventType, ok := extractOpenAISSEEventLine(line); ok {
 			pendingSSEEventType = eventType
