@@ -28,7 +28,7 @@ func (r *turnAdmissionRepo) GetOpenAITurnAdmission(context.Context, int64) (*Acc
 }
 
 func TestOpenAITurnAdmissionLatestState(t *testing.T) {
-	for _, change := range []string{"disabled", "paused", "expired", "removed_group", "deleted", "db_error", "binding", "platform", "cooldown", "model_block", "persisted_model_limit", "fingerprint", "ws_mode", "proxy_endpoint"} {
+	for _, change := range []string{"disabled", "paused", "expired", "removed_group", "deleted", "db_error", "binding", "credentials", "credential_route", "platform", "cooldown", "model_block", "persisted_model_limit", "fingerprint", "ws_mode", "proxy_endpoint"} {
 		t.Run(change, func(t *testing.T) {
 			selected := ticketTestAccount(901)
 			selected.GroupIDs = []int64{9}
@@ -57,7 +57,16 @@ func TestOpenAITurnAdmissionLatestState(t *testing.T) {
 			case "db_error":
 				repo.err = errors.New("unavailable")
 			case "binding":
-				latest.Credentials = map[string]any{"access_token": "different"}
+				latest.ParentAccountID = func() *int64 {
+					id := int64(902)
+					return &id
+				}()
+			case "credentials":
+				latest.Credentials = maps.Clone(selected.Credentials)
+				latest.Credentials["access_token"] = "different"
+				latest.Credentials["_token_version"] = int64(2)
+			case "credential_route":
+				latest.Credentials = map[string]any{"base_url": "https://changed.example.invalid"}
 			case "platform":
 				latest.Platform = PlatformKimi
 			case "cooldown":
@@ -80,11 +89,17 @@ func TestOpenAITurnAdmissionLatestState(t *testing.T) {
 				latest.Proxy = &Proxy{ID: id, Protocol: "http", Host: "new.invalid", Port: 80}
 			}
 			_, err := s.admitOpenAITurn(context.Background(), c, selected, "gpt-6-astra")
-			require.True(t, IsOpenAITurnAdmissionError(err), "%v", err)
+			if change == "credentials" {
+				require.NoError(t, err)
+			} else {
+				require.True(t, IsOpenAITurnAdmissionError(err), "%v", err)
+			}
 			require.Equal(t, 1, repo.reads)
 			require.True(t, selected.Schedulable)
 			require.Nil(t, selected.TempUnschedulableUntil)
-			require.Same(t, err, s.handleOpenAIUpstreamTransportError(context.Background(), c, selected, err, false))
+			if err != nil {
+				require.Same(t, err, s.handleOpenAIUpstreamTransportError(context.Background(), c, selected, err, false))
+			}
 		})
 	}
 }
@@ -103,6 +118,28 @@ func TestOpenAITurnAdmissionExplicitGroupRejectsRemovedMembership(t *testing.T) 
 	var denied *OpenAITurnAdmissionError
 	require.ErrorAs(t, err, &denied)
 	require.Equal(t, "group_membership_changed", denied.Reason)
+	require.Equal(t, 1, repo.reads)
+}
+
+func TestOpenAITurnAdmissionSimpleModeDoesNotRequireGroupMembership(t *testing.T) {
+	selected := ticketTestAccount(906)
+	selected.GroupIDs = []int64{9}
+	latest := *selected
+	latest.GroupIDs = nil
+	repo := &turnAdmissionRepo{account: &latest}
+	s := &OpenAIGatewayService{
+		accountRepo: repo,
+		cfg:         &config.Config{RunMode: config.RunModeSimple},
+	}
+
+	groupID := int64(9)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Set("api_key", &APIKey{GroupID: &groupID})
+
+	got, err := s.admitOpenAITurn(context.Background(), c, selected, "gpt-5.5")
+
+	require.NoError(t, err)
+	require.Same(t, &latest, got)
 	require.Equal(t, 1, repo.reads)
 }
 

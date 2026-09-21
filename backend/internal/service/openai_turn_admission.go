@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
 )
 
@@ -148,7 +149,15 @@ func denyOpenAITicket() error {
 }
 
 // Used only to detect a binding change, never logged. Include routing/identity
-// settings but not mutable usage or harvested-ticket observations.
+// settings but not mutable authentication credentials, usage, or
+// harvested-ticket observations.
+//
+// Authentication credentials intentionally do not participate in this
+// fingerprint. OAuth refresh and agent-task renewal replace access
+// credentials during the normal lifetime of an account without changing its
+// routing identity. Non-secret credential settings such as base_url and
+// protocol mappings remain part of the fingerprint because they do affect
+// where or how the request is sent.
 func openAITurnRouteFingerprint(a *Account) [32]byte {
 	if a == nil {
 		return [32]byte{}
@@ -173,13 +182,25 @@ func openAITurnRouteFingerprint(a *Account) [32]byte {
 	if a.Proxy != nil {
 		proxyURL = a.Proxy.URL()
 	}
+	routeCredentials := make(map[string]any)
+	for key, value := range a.Credentials {
+		switch key {
+		case "access_token", "refresh_token", "id_token", "_token_version",
+			"expires_at", "expires_in", "token_type", "scope":
+			continue
+		}
+		if IsSensitiveCredentialKey(key) || strings.HasPrefix(key, "_token_") {
+			continue
+		}
+		routeCredentials[key] = value
+	}
 	b, _ := json.Marshal(struct {
 		Platform, Type string
 		Parent, Proxy  *int64
 		Credentials    map[string]any
 		RouteExtra     map[string]any
 		ProxyURL       string
-	}{a.Platform, a.Type, a.ParentAccountID, a.ProxyID, a.Credentials, routeExtra, proxyURL})
+	}{a.Platform, a.Type, a.ParentAccountID, a.ProxyID, routeCredentials, routeExtra, proxyURL})
 	return sha256.Sum256(b)
 }
 
@@ -249,6 +270,11 @@ func (s *OpenAIGatewayService) latestOpenAITurnAccountForGroup(
 		!parent.IsOpenAIOAuth() || !parent.IsCredentialUsableForShadow()) {
 		return nil, denyOpenAITurn("credential_parent_ineligible")
 	}
+	// Simple mode deliberately schedules across the whole platform and does
+	// not bind an account to the API key's group. Keep the final pre-send
+	// admission predicate aligned with the scheduler instead of rejecting an
+	// account that the scheduler just selected.
+	enforceGroup = enforceGroup && (s == nil || s.cfg == nil || s.cfg.RunMode != config.RunModeSimple)
 	if enforceGroup {
 		if (groupID != 0 && !slices.Contains(latest.GroupIDs, groupID)) ||
 			(groupID == 0 && len(latest.GroupIDs) != 0) {

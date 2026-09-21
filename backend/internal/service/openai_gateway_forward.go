@@ -20,7 +20,7 @@ import (
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
-	latest, admissionErr := s.latestOpenAITurnAccount(ctx, c, account)
+	latest, admissionErr := s.admitOpenAITurn(ctx, c, account, extractOpenAICodexTicketModel(body))
 	if admissionErr != nil {
 		return nil, admissionErr
 	}
@@ -791,7 +791,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		imageSizeTier = imageCfg.SizeTier
 		imageInputSize = imageCfg.InputSize
 	}
-	// Get access token
+	// Get access token. Non-WS attempts re-read the authoritative account and
+	// refresh this token immediately before building the request below.
 	token, _, err := s.GetAccessToken(ctx, account)
 	if err != nil {
 		return nil, err
@@ -1053,6 +1054,16 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	agentTaskRecoveryTried := false
 	rejectedFieldRetryState := openAIResponsesRejectedFieldRetryStateForRequest(c, body)
 	for {
+		latest, admissionErr := s.admitOpenAITurn(ctx, c, account, extractOpenAICodexTicketModel(body))
+		if admissionErr != nil {
+			return nil, admissionErr
+		}
+		account = latest
+		token, _, err = s.GetAccessToken(ctx, account)
+		if err != nil {
+			return nil, err
+		}
+
 		// Build upstream request
 		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 		var headerGuard *openAIFirstOutputHeaderGuard
@@ -1079,15 +1090,11 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 
 		// Send request
-		latest, admissionErr := s.admitOpenAITurn(ctx, c, account, extractOpenAICodexTicketModel(body))
-		if admissionErr == nil {
-			admissionErr = s.applyOpenAICodexTicket(ctx, latest, extractOpenAICodexTicketModel(body), upstreamReq.Header)
-		}
-		if admissionErr != nil {
+		if err := s.applyOpenAICodexTicket(ctx, account, extractOpenAICodexTicketModel(body), upstreamReq.Header); err != nil {
 			if headerGuard != nil {
 				headerGuard.close()
 			}
-			return nil, admissionErr
+			return nil, err
 		}
 		upstreamStart := time.Now()
 		resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)

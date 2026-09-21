@@ -68,6 +68,11 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return nil, fmt.Errorf("missing model in request")
 	}
+	latest, admissionErr := s.admitOpenAITurn(ctx, c, account, originalModel)
+	if admissionErr != nil {
+		return nil, admissionErr
+	}
+	account = latest
 	clientStream := gjson.GetBytes(body, "stream").Bool()
 
 	// 2. Resolve model mapping (same as ForwardAsChatCompletions)
