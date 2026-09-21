@@ -494,7 +494,7 @@ func (s *OpenAIGatewayService) applyOpenAICodexTicket(ctx context.Context, accou
 		if !cfg.FailClosed {
 			return nil
 		}
-		return ErrOpenAICodexTicketUnavailable
+		return denyOpenAITicket()
 	}
 	ticket := s.lookupOpenAICodexTicket(account, model)
 	if ticket.valid(time.Now(), openAICodexTicketTargetLength(account, cfg)) {
@@ -504,7 +504,7 @@ func (s *OpenAIGatewayService) applyOpenAICodexTicket(ctx context.Context, accou
 	if !cfg.FailClosed {
 		return nil
 	}
-	return ErrOpenAICodexTicketUnavailable
+	return denyOpenAITicket()
 }
 
 // openAICodexTicketOutboundModel 预测本请求真正出站的模型名，也就是

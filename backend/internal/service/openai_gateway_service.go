@@ -519,6 +519,8 @@ type OpenAIGatewayService struct {
 	openaiCodexTicketCancel        context.CancelFunc
 	openaiCodexTicketDone          chan struct{}
 	openaiCodexTicketStopped       bool
+
+	requireLatestTurnAdmission bool
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
@@ -590,6 +592,8 @@ func NewOpenAIGatewayService(
 		responseHeaderFilter:  compileResponseHeaderFilter(cfg),
 		codexSnapshotThrottle: newAccountWriteThrottle(openAICodexSnapshotPersistMinInterval),
 		openaiModelTransient:  newOpenAIAccountModelTransientState(openAIModelTransientDefaultMax),
+
+		requireLatestTurnAdmission: true,
 	}
 	if rateLimitService != nil {
 		rateLimitService.SetAccountRuntimeBlocker(svc)

@@ -373,6 +373,13 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			return nil, buildErr
 		}
 
+		latest, admissionErr := s.admitOpenAITurn(ctx, c, account, actualModel)
+		if admissionErr == nil {
+			admissionErr = s.applyOpenAICodexTicket(ctx, latest, actualModel, upstreamReq.Header)
+		}
+		if admissionErr != nil {
+			return nil, admissionErr
+		}
 		upstreamStart := time.Now()
 		resp, err = s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())

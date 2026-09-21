@@ -20,6 +20,11 @@ import (
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
+	latest, admissionErr := s.latestOpenAITurnAccount(ctx, c, account)
+	if admissionErr != nil {
+		return nil, admissionErr
+	}
+	account = latest
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	if shouldForwardOpenAIResponsesViaChatCompletions(account, body) {
@@ -916,6 +921,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			if wsErr == nil {
 				break
 			}
+			if IsOpenAITurnAdmissionError(wsErr) {
+				return nil, wsErr
+			}
 			if c != nil && c.Writer != nil && c.Writer.Written() {
 				break
 			}
@@ -1071,6 +1079,16 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 
 		// Send request
+		latest, admissionErr := s.admitOpenAITurn(ctx, c, account, extractOpenAICodexTicketModel(body))
+		if admissionErr == nil {
+			admissionErr = s.applyOpenAICodexTicket(ctx, latest, extractOpenAICodexTicketModel(body), upstreamReq.Header)
+		}
+		if admissionErr != nil {
+			if headerGuard != nil {
+				headerGuard.close()
+			}
+			return nil, admissionErr
+		}
 		upstreamStart := time.Now()
 		resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
