@@ -736,6 +736,12 @@ func BuildCodexHarvestFlow(ctx context.Context, cfg *config.Config, settings *Se
 	}
 	ticketCfg.Enabled = enabled
 	ticketCfg.FailClosed = failClosed
+	events := listCodexHarvestFlowEvents()
+	for i := range events {
+		if strings.TrimSpace(events[i].Node) != "" {
+			events[i].Node = mihomo.NodeDisplayName(events[i].Node)
+		}
+	}
 	snapshot := CodexHarvestFlowSnapshot{
 		Runtime:     runtime,
 		GeneratedAt: now,
@@ -756,7 +762,7 @@ func BuildCodexHarvestFlow(ctx context.Context, cfg *config.Config, settings *Se
 			HarvestProxy:      MaskProxyURL(harvestProxy),
 		},
 		Sidecar:  observeCodexHarvestProxy(ctx, harvestProxy),
-		Events:   listCodexHarvestFlowEvents(),
+		Events:   events,
 		Accounts: []CodexHarvestFlowAccount{},
 	}
 	if snapshot.Harvest.HarvestProxy == "" && harvestProxy == mihomo.Endpoint {
