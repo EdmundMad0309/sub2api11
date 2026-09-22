@@ -61,7 +61,7 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(ctx context.Context, req Man
 		return fmt.Errorf("account %d not found: %w", req.AccountID, err)
 	}
 	if !isOpenAICodexTicketAccount(account) {
-		return errors.New("only OpenAI OAuth accounts can harvest tickets")
+		return errors.New("account does not support Codex ticket harvesting; only OpenAI OAuth accounts can harvest tickets")
 	}
 	cfg := s.openAICodexTicketConfig()
 	if len(req.Models) == 0 {
@@ -196,8 +196,15 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(ctx context.Context, req Man
 				consecutiveFails = 0
 				ticket := codexHarvestTicket(account, model, result, cfg, attempt)
 				bindCodexHarvestEgress(ticket, lease, session)
-				if storeErr := s.storeOpenAICodexTicket(ctx, account, ticket); storeErr != nil && s.codexHarvest != nil {
-					s.codexHarvest.degrade("ticket persisted in memory only; database write failed")
+				if storeErr := s.storeOpenAICodexTicket(ctx, account, ticket); storeErr != nil {
+					if s.codexHarvest != nil {
+						s.codexHarvest.degrade("ticket persisted in memory only; database write failed")
+					}
+					emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, Model: model, Node: nodeName, Result: "persist_failed", Level: "WARN", Message: "已捕获合规门票，但持久化失败，继续重试", TicketsStored: ticketsStored})
+					if waitErr := waitManualHarvest(ctx, req.ProbeIntervalSeconds); waitErr != nil {
+						return waitErr
+					}
+					continue
 				}
 				s.openaiCodexTicketProbeCooldown.Delete(openAICodexTicketKey(account.ID, model))
 				ticketsStored++
@@ -492,8 +499,48 @@ func normalizeManualHarvestRequest(req *ManualHarvestRequest) {
 	if req == nil {
 		return
 	}
-	normalized, err := NormalizeManualHarvestRequest(*req)
-	if err == nil {
-		*req = normalized
+	if req.ProbeIntervalSeconds == 0 {
+		req.ProbeIntervalSeconds = 10
 	}
+	if req.ProbeIntervalSeconds < manualHarvestProbeIntervalMin {
+		req.ProbeIntervalSeconds = manualHarvestProbeIntervalMin
+	}
+	if req.ProbeIntervalSeconds > manualHarvestProbeIntervalMax {
+		req.ProbeIntervalSeconds = manualHarvestProbeIntervalMax
+	}
+	if req.RateLimitCooldownSeconds == 0 {
+		req.RateLimitCooldownSeconds = 30
+	}
+	if req.RateLimitCooldownSeconds < manualHarvestRateLimitCooldownMin {
+		req.RateLimitCooldownSeconds = manualHarvestRateLimitCooldownMin
+	}
+	if req.RateLimitCooldownSeconds > manualHarvestRateLimitCooldownMax {
+		req.RateLimitCooldownSeconds = manualHarvestRateLimitCooldownMax
+	}
+	if req.MaxAttempts == 0 {
+		req.MaxAttempts = 20
+	}
+	if req.MaxAttempts < manualHarvestMaxAttemptsMin {
+		req.MaxAttempts = manualHarvestMaxAttemptsMin
+	}
+	if req.MaxAttempts > manualHarvestMaxAttemptsMax {
+		req.MaxAttempts = manualHarvestMaxAttemptsMax
+	}
+	seen := map[string]bool{}
+	models := make([]string, 0, len(req.Models))
+	for _, model := range req.Models {
+		model = normalizeOpenAICodexTicketModel(model)
+		if model == "" || seen[model] {
+			continue
+		}
+		seen[model] = true
+		models = append(models, model)
+		if len(models) >= manualHarvestMaxModels {
+			break
+		}
+	}
+	if len(models) == 0 {
+		models = []string{openAICodexTicketDefaultModel, openAICodexTicketDefaultSolModel}
+	}
+	req.Models = models
 }

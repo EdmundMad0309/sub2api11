@@ -474,8 +474,8 @@ func (s *OpenAIGatewayService) storeOpenAICodexTicket(ctx context.Context, accou
 	ticket.Model = model
 	ticket.AccountID = account.ID
 	s.openaiCodexTickets.Store(openAICodexTicketKey(account.ID, model), ticket)
-	recordCodexHarvestTicketStore(account, &incoming, standby)
 	if s.accountRepo == nil {
+		recordCodexHarvestTicketStore(account, &incoming, standby)
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -490,6 +490,7 @@ func (s *OpenAIGatewayService) storeOpenAICodexTicket(ctx context.Context, accou
 		)
 		return err
 	}
+	recordCodexHarvestTicketStore(account, &incoming, standby)
 	return nil
 }
 
