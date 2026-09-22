@@ -37,8 +37,8 @@ hostname:port@username:password</pre>
         <div class="max-h-64 overflow-auto">
           <div v-for="node in status.node_states" :key="node.name" class="flex items-center gap-2 py-1 text-xs">
             <span>{{ node.display_name || node.name }}</span><span>{{ node.state }}</span>
-            <span :title="node.country_checked_at ? new Date(node.country_checked_at).toLocaleString() : ''">{{ node.country_code || text('地区未知', 'Unknown region') }}</span>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="pending || status.busy" @click="operate('country_probe/' + node.name)">{{ text('检测地区', 'Check region') }}</button>
+            <span :title="node.country_checked_at ? new Date(node.country_checked_at).toLocaleString() : ''">{{ node.dynamic ? text('动态出口 · 地区随连接变化', 'Dynamic exit · region may change') : node.country_code || text('地区未知', 'Unknown region') }}</span>
+            <button v-if="!node.dynamic" type="button" class="btn btn-secondary btn-sm" :disabled="pending || status.busy" @click="operate('country_probe/' + node.name)">{{ text('检测地区', 'Check region') }}</button>
             <button type="button" class="btn btn-secondary btn-sm" :disabled="pending || status.busy || !status.running" @click="operate('probe/' + node.name)">{{ text('检测', 'Test') }}</button>
             <button type="button" class="btn btn-secondary btn-sm" :disabled="pending || status.busy || node.state === 'country_excluded'" @click="operate((node.state === 'enabled' ? 'disable/' : 'recover/') + node.name)">{{ node.state === 'country_excluded' ? text('地区已排除', 'Region excluded') : node.state === 'enabled' ? text('停用', 'Disable') : text('恢复', 'Recover') }}</button>
           </div>

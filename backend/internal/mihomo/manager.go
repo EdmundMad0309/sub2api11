@@ -63,6 +63,7 @@ type Status struct {
 }
 
 type NodeStatus struct {
+	Dynamic          bool       `json:"dynamic"`
 	CountryCode      string     `json:"country_code,omitempty"`
 	CountryCheckedAt *time.Time `json:"country_checked_at,omitempty"`
 	CountryError     string     `json:"country_error,omitempty"`
@@ -139,6 +140,10 @@ func (m *Manager) Status() Status {
 				state = disabled
 			}
 			observation := m.saved.Countries[name]
+			dynamic := strings.HasPrefix(name, "DYNAMIC-")
+			if dynamic {
+				observation = CountryObservation{}
+			}
 			blocked := !countryAllowed(m.saved, name)
 			if !validCountry(observation.Code) {
 				s.UnknownCountries++
@@ -151,7 +156,7 @@ func (m *Manager) Status() Status {
 			} else if state == "enabled" {
 				s.EligibleNodes++
 			}
-			node := NodeStatus{Name: name, DisplayName: m.saved.NodeNames[name], State: state, CountryCode: observation.Code, CountryError: observation.Error, CountryBlocked: blocked}
+			node := NodeStatus{Dynamic: dynamic, Name: name, DisplayName: m.saved.NodeNames[name], State: state, CountryCode: observation.Code, CountryError: observation.Error, CountryBlocked: blocked}
 			if !observation.CheckedAt.IsZero() {
 				checked := observation.CheckedAt
 				node.CountryCheckedAt = &checked

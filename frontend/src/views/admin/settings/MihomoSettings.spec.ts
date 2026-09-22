@@ -26,7 +26,7 @@ describe('Mihomo settings', () => {
     await wrapper.get('textarea').setValue('https://example.org/unsaved')
     await wrapper.findAll('button').find(b=>b.text().includes('快捷'))!.trigger('click')
     await wrapper.findAll('button').find(b=>b.text()==='保存地区规则')!.trigger('click');await flushPromises()
-    expect(post).toHaveBeenCalledWith('/admin/system/mihomo',expect.objectContaining({action:'country_filter',subscriptions:[],country_filter:{mode:'exclude',codes:['HK'],allow_unknown:false}}))
+    expect(post).toHaveBeenCalledWith('/admin/system/mihomo',expect.objectContaining({action:'country_filter',subscriptions:[],country_filter:{mode:'exclude',codes:['HK'],allow_unknown:false,dynamic_provider_managed:false}}))
     expect(wrapper.get<HTMLTextAreaElement>('textarea').element.value).toBe('https://example.org/unsaved')
     wrapper.unmount()
   })
