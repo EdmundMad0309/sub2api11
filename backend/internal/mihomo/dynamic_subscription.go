@@ -128,9 +128,10 @@ func dynamicProxyNodes(raw []string) ([]map[string]any, map[string]string, error
 		hash := sha256.Sum256([]byte(value))
 		name := "DYNAMIC-" + hex.EncodeToString(hash[:])[:16]
 		nodeType := proxy.Scheme
-		if nodeType == "https" {
+		switch nodeType {
+		case "https":
 			nodeType = "http"
-		} else if nodeType == "socks5h" {
+		case "socks5h":
 			// Mihomo's socks5 outbound performs remote DNS for proxy hosts;
 			// its YAML type is still "socks5".
 			nodeType = "socks5"
