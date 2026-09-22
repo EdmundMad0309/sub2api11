@@ -95,6 +95,7 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(ctx context.Context, req Man
 	keepID := ""
 	ticketsStored := 0
 	consecutiveFails := 0
+	persistPending := map[string]bool{}
 	forceSwitch := req.NodeSwitchRule == ManualHarvestNodeSwitchEveryRequest
 
 	emit(ManualHarvestProgress{
@@ -119,6 +120,9 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(ctx context.Context, req Man
 		}
 		account = fresh
 		s.markManualHarvestLiveModels(account, req.Models, got)
+		for model := range persistPending {
+			delete(got, model)
+		}
 		if manualHarvestRunComplete(req.StopOnSuccess, req.Models, got) {
 			emit(ManualHarvestProgress{Attempt: attempt, MaxAttempts: req.MaxAttempts, TicketsStored: ticketsStored, Done: true, Result: "hit", Level: "OK", Message: "目标模型已有有效门票，手动打票结束。"})
 			return nil
@@ -197,6 +201,7 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(ctx context.Context, req Man
 				ticket := codexHarvestTicket(account, model, result, cfg, attempt)
 				bindCodexHarvestEgress(ticket, lease, session)
 				if storeErr := s.storeOpenAICodexTicket(ctx, account, ticket); storeErr != nil {
+					persistPending[model] = true
 					if s.codexHarvest != nil {
 						s.codexHarvest.degrade("ticket persisted in memory only; database write failed")
 					}
@@ -206,6 +211,7 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(ctx context.Context, req Man
 					}
 					continue
 				}
+				delete(persistPending, model)
 				s.openaiCodexTicketProbeCooldown.Delete(openAICodexTicketKey(account.ID, model))
 				ticketsStored++
 				got[model] = struct{}{}
