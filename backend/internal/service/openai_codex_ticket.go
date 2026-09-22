@@ -226,6 +226,8 @@ type OpenAICodexTicketStatus struct {
 	ExpiresAt        *time.Time         `json:"expires_at,omitempty"`
 	StandbyExpiresAt *time.Time         `json:"standby_expires_at,omitempty"`
 	Standby          bool               `json:"standby,omitempty"`
+	CookieCount      int                `json:"cookie_count,omitempty"`
+	CookieExpiresAt  *time.Time         `json:"cookie_expires_at,omitempty"`
 	Probe            *CodexProbeSummary `json:"probe,omitempty"`
 }
 
@@ -276,6 +278,11 @@ func OpenAICodexTicketStatuses(account *Account, cfg config.OpenAICodexTicketCon
 			}
 			status.RemainingSeconds = remaining
 			status.ExpiresAt = &exp
+		}
+		if ticket != nil && len(ticket.HarvestCookies) > 0 && !ticket.CapturedAt.IsZero() {
+			cookieExpiry := ticket.CapturedAt.Add(openAICodexCredentialTTL)
+			status.CookieCount = len(ticket.HarvestCookies)
+			status.CookieExpiresAt = &cookieExpiry
 		}
 		// Skip-harvest only stops probing. Missing tickets must not look like
 		// a paused/降智 account; fail-closed still applies to harvest accounts.

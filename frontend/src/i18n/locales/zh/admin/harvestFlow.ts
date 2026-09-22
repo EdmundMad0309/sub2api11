@@ -43,6 +43,7 @@ export default {
     idleProbe: '等待打票探测',
     idleShape: '等待 292 校验',
     idleTicket: '暂无入库门票',
+    cookies: { none: '无 Cookie', active: 'Cookie {count} 个 · 剩余 {time}', expired: 'Cookie {count} 个 · 已过期' },
     idleSelect: '等待助手请求',
     shapeOk: '{length} 字节 / {blocks} 块',
     shapeBad: '实际 {length}/{blocks}，目标 {expected_length}/{expected_blocks}',
@@ -199,6 +200,7 @@ export default {
       saveFailed: '设置保存失败，草稿已保留。',
       saveSuccess: '采集设置已保存。',
       budget: '本轮请求 / 预算', nextRound: '下一轮', running: '本轮采集中', currentNode: '本次定向节点', selection: '选择 / 切换原因', degraded: '降级状态：',
+      cookies: { none: '无 Cookie', active: 'Cookie {count} 个 · 剩余 {time}', expired: 'Cookie {count} 个 · 已过期' },
       reasons: {
         explore: '轮转探索', recent_success: '近期合格票成功记录优先',
         switch_after_invalid_state: '上一节点票形未通过',

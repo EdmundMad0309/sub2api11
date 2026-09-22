@@ -43,6 +43,7 @@ export default {
     idleProbe: 'Waiting for harvest probe',
     idleShape: 'Waiting for 292 check',
     idleTicket: 'No stored ticket',
+    cookies: { none: 'No cookies', active: '{count} cookies · {time} left', expired: '{count} cookies · expired' },
     idleSelect: 'Waiting for assistant request',
     shapeOk: '{length} bytes / {blocks} blocks',
     shapeBad: 'Got {length}/{blocks}, want {expected_length}/{expected_blocks}',
@@ -199,6 +200,7 @@ export default {
       saveFailed: 'Settings were not saved. The draft is retained.',
       saveSuccess: 'Harvest settings saved.',
       budget: 'Round requests / budget', nextRound: 'Next round', running: 'Harvesting this round', currentNode: 'Directed node', selection: 'Selection / switch reason', degraded: 'Degraded:',
+      cookies: { none: 'No cookies', active: '{count} cookies · {time} left', expired: '{count} cookies · expired' },
       reasons: {
         explore: 'Round-robin exploration', recent_success: 'Recent qualified ticket success',
         switch_after_invalid_state: 'Previous node returned an invalid ticket',

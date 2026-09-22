@@ -167,6 +167,7 @@
                   >
                     <span class="font-medium">{{ ticket.model }} · {{ ticketStatusLine(account, ticket) }}</span>
                     <span class="mt-auto block min-h-[1rem] font-mono text-[11px] opacity-80">{{ ticket.length ? `${ticket.length}B` : '—' }}</span>
+                    <span class="block min-h-[1rem] text-[11px] opacity-80">{{ ticketCookieLine(ticket) }}</span>
                     <span class="block min-h-[1rem] text-[11px] opacity-80">{{ ticketProbeLine(ticket) }}</span>
                   </span>
                 </div>
@@ -476,6 +477,15 @@ function ticketProbeLine(ticket: CodexHarvestFlowTicket) {
   }
   if (!probe?.result) return '\u00a0'
   return probe.http_status ? `${resultLabel(probe.result)} · HTTP ${probe.http_status}` : resultLabel(probe.result)
+}
+
+function ticketCookieLine(ticket: CodexHarvestFlowTicket) {
+  if (!ticket.cookie_count) return t('admin.harvestFlow.cookies.none')
+  const remaining = secondsUntil(ticket.cookie_expires_at)
+  if (remaining === null || remaining <= 0) {
+    return t('admin.harvestFlow.cookies.expired', { count: ticket.cookie_count })
+  }
+  return t('admin.harvestFlow.cookies.active', { count: ticket.cookie_count, time: formatRemaining(remaining) })
 }
 
 async function fetchFlow() {

@@ -1083,6 +1083,8 @@ export interface CodexHarvestFlowTicket {
   expires_at?: string
   standby_expires_at?: string
   standby?: boolean
+  cookie_count?: number
+  cookie_expires_at?: string
   probe?: {
     result?: string
     http_status?: number
