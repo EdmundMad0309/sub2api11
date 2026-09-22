@@ -20,6 +20,7 @@ const (
 )
 
 type ManualHarvestRequest struct {
+	CollectLanes             int      `json:"collect_lanes"`
 	AccountID                int64    `json:"account_id"`
 	Models                   []string `json:"models"`
 	ProbeIntervalSeconds     int      `json:"probe_interval_seconds"`
@@ -51,6 +52,10 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(ctx context.Context, req Man
 	if s == nil || s.accountRepo == nil {
 		return errors.New("gateway service unavailable")
 	}
+	if !s.codexHarvestRunMu.TryLock() {
+		return errors.New("another harvest is running")
+	}
+	defer s.codexHarvestRunMu.Unlock()
 	normalizeManualHarvestRequest(&req)
 	req, err := NormalizeManualHarvestRequest(req)
 	if err != nil {
@@ -82,6 +87,9 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(ctx context.Context, req Man
 		progress(p)
 	}
 
+	if req.CollectLanes > 1 {
+		return s.executeParallelHarvest(ctx, req, account, emit)
+	}
 	proxy := s.openAICodexTicketHarvestProxyURLContext(ctx)
 	controls, _ := s.harvestControls(ctx)
 	timeout := time.Duration(controls.Speed.AttemptTimeoutSeconds) * time.Second
@@ -273,6 +281,10 @@ func manualHarvestRunComplete(stopOnSuccess bool, models []string, got map[strin
 }
 
 func NormalizeManualHarvestRequest(req ManualHarvestRequest) (ManualHarvestRequest, error) {
+	if req.CollectLanes < 0 || req.CollectLanes > mihomo.MaxCollectLanes {
+		return req, errors.New("collect_lanes must be 0-32")
+	}
+
 	req.NodeSwitchRule = strings.TrimSpace(req.NodeSwitchRule)
 	switch req.NodeSwitchRule {
 	case "", ManualHarvestNodeSwitch312Or2Fail:

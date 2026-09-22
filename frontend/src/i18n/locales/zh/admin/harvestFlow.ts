@@ -98,6 +98,9 @@ export default {
       }
     },
     console: {
+      collectLanes: '并行通道数',
+      parallelStart: '并行获取凭证',
+      parallelHint: '需要托管 Mihomo；独立出口探测，共享最大尝试次数，成功入库后停止。',
       title: '单号定向打票',
       description: '手动对指定账号打票。换节点走定向出口和节点记忆，不走业务轮询。',
       account: '目标账号',

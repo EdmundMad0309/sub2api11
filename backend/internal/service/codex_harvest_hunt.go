@@ -22,6 +22,11 @@ func (s *OpenAIGatewayService) probeOnceOpenAICodexTicket(ctx context.Context, a
 }
 
 func (s *OpenAIGatewayService) huntCodexHarvestTicket(ctx context.Context, account *Account, model string) {
+	if !s.codexHarvestRunMu.TryRLock() {
+		return
+	}
+	defer s.codexHarvestRunMu.RUnlock()
+
 	controls, _ := s.harvestControls(ctx)
 	round, _ := ctx.Value(codexHarvestRoundKey{}).(*codexHarvestRound)
 	if round == nil {

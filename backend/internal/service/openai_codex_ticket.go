@@ -57,6 +57,7 @@ type openAICodexTicket struct {
 	HarvestNodeName     string             `json:"harvest_node_name,omitempty"`
 	HarvestNodeProvider string             `json:"harvest_node_provider,omitempty"`
 	HarvestSessionID    string             `json:"harvest_session_id,omitempty"`
+	HarvestLite         bool               `json:"harvest_lite,omitempty"`
 	HarvestCookies      []string           `json:"harvest_cookies,omitempty"`
 	HarvestCookiesAt    time.Time          `json:"harvest_cookies_at,omitempty"`
 	Standby             *openAICodexTicket `json:"standby,omitempty"`

@@ -1202,6 +1202,7 @@ export async function updateCodexSkipHarvest(id: number, skipHarvest: boolean): 
 }
 
 export interface ManualHarvestRequest {
+  collect_lanes?: number
   models?: string[]
   probe_interval_seconds: number
   rate_limit_cooldown_seconds: number

@@ -98,6 +98,9 @@ export default {
       }
     },
     console: {
+      collectLanes: 'Parallel lanes',
+      parallelStart: 'Collect in parallel',
+      parallelHint: 'Requires managed Mihomo. Independent exits share the attempt budget and stop after a ticket is saved.',
       title: 'Directed single-account harvest',
       description: 'Manually harvest one account. Node switches use the directed exit and node memory, not business rotation.',
       account: 'Account',

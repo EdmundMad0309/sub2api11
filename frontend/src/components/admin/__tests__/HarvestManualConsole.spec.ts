@@ -74,6 +74,29 @@ describe('HarvestManualConsole', () => {
     expect(wrapper.emitted('finished')).toHaveLength(1)
   })
 
+  it('starts parallel collection with a bounded lane count and supports cancellation', async () => {
+    const pending = deferred<void>()
+    let activeSignal: AbortSignal | undefined
+    stream.mockImplementation((_id, _body, _progress, signal: AbortSignal) => {
+      activeSignal = signal
+      signal.addEventListener('abort', () => pending.reject(Object.assign(new Error('aborted'), { name: 'AbortError' })))
+      return pending.promise
+    })
+    wrapper = mount(HarvestManualConsole, {
+      props: { accounts: [account()], models: ['gpt-6-astra'] }
+    })
+    await wrapper.get('[data-testid="manual-account-input"]').trigger('focus')
+    await wrapper.get('[data-testid="manual-account-2"]').trigger('click')
+    await wrapper.get('[data-testid="manual-collect-lanes"]').setValue(4)
+    await wrapper.get('[data-testid="manual-parallel-start"]').trigger('click')
+    await flushPromises()
+    expect(stream).toHaveBeenCalledWith(2, expect.objectContaining({ collect_lanes: 4, max_attempts: 20 }), expect.any(Function), expect.any(AbortSignal))
+    expect(wrapper.find('[data-testid="manual-start"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="manual-stop"]').trigger('click')
+    await flushPromises()
+    expect(activeSignal?.aborted).toBe(true)
+  })
+
   it('aborts the in-flight harvest when stopped', async () => {
     const pending = deferred<void>()
     stream.mockImplementation((_id, _body, _progress, signal: AbortSignal) => {

@@ -105,7 +105,7 @@ func (s *OpenAIGatewayService) executeCodexHarvestProbe(ctx context.Context, acc
 }
 
 func (s *OpenAIGatewayService) requestCodexHarvestProbe(ctx context.Context, account *Account, token, model, proxy string, reserve func() bool, sessionID string) (out codexHarvestProbeResult) {
-	body := []byte(`{"model":` + jsonString(model) + `,"store":false,"stream":true,"instructions":"Reply with exactly: pong","input":[{"role":"user","content":[{"type":"input_text","text":"ping"}]}]}`)
+	body := []byte(`{"model":` + jsonString(model) + `,"store":false,"stream":true,"instructions":"Reply with exactly: pong. Do not call tools.","parallel_tool_calls":false,"include":["reasoning.encrypted_content"],"reasoning":{"context":"all_turns"},"input":[{"type":"additional_tools","role":"developer","tools":[{"type":"namespace","name":"codex","description":"local tools","tools":[{"type":"function","name":"noop","description":"Do nothing.","strict":false,"parameters":{"type":"object","properties":{},"additionalProperties":false}}]}]},{"role":"user","content":[{"type":"input_text","text":"ping"}]}]}`)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatgptCodexURL, bytes.NewReader(body))
 	if err != nil {
 		out.Err = err
@@ -113,6 +113,7 @@ func (s *OpenAIGatewayService) requestCodexHarvestProbe(ctx context.Context, acc
 	}
 	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAIHarvest))
 	req.Close = true
+	req.Header.Set(responsesLiteHeaderKey, "true")
 	req.Host = "chatgpt.com"
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "text/event-stream")
@@ -125,9 +126,6 @@ func (s *OpenAIGatewayService) requestCodexHarvestProbe(ctx context.Context, acc
 	if err := resolveAndSetOpenAIChatGPTAccountHeaders(ctx, s.accountRepo, req.Header, account); err != nil {
 		out.Err = err
 		return
-	}
-	if previous := s.lookupOpenAICodexTicket(account, model); codexTicketCookiesFresh(previous, time.Now()) {
-		req.Header.Set("Cookie", strings.Join(previous.HarvestCookies, "; "))
 	}
 	applyOpenAICodexTicketHarvestIdentity(req.Header, model)
 	if ctx.Err() != nil {
@@ -166,7 +164,7 @@ func (s *OpenAIGatewayService) requestCodexHarvestProbe(ctx context.Context, acc
 		return
 	}
 	if out.Status == http.StatusOK {
-		out.Err = validateCodexProbeResponse(response)
+		out.Err = validateCodexProbeResponse(response, model)
 	}
 	return
 }
@@ -214,5 +212,5 @@ func codexHarvestTicket(account *Account, model string, r codexHarvestProbeResul
 	}
 	return &openAICodexTicket{AccountID: account.ID, Model: model, State: r.State, Length: len(r.State),
 		CapturedAt: now, ExpiresAt: expires, Attempts: attempts, Blocks: r.Shape.Blocks, IssuedAt: r.Shape.IssuedAt,
-		HarvestCookies: append([]string(nil), r.Cookies...), HarvestCookiesAt: now}
+		HarvestLite: true, HarvestCookies: append([]string(nil), r.Cookies...), HarvestCookiesAt: now}
 }

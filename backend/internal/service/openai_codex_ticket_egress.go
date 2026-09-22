@@ -83,6 +83,9 @@ func restoreBoundCodexTicketHarvestIdentity(h http.Header, ticket *openAICodexTi
 	for _, key := range boundCodexTicketHarvestStrippedHeaders {
 		h.Del(key)
 	}
+	if ticket.HarvestLite {
+		h.Set(responsesLiteHeaderKey, "true")
+	}
 	if prevBeta == openAIWSBetaV1Value || prevBeta == openAIWSBetaV2Value {
 		h.Set("OpenAI-Beta", prevBeta)
 	}
@@ -327,6 +330,13 @@ func (s *OpenAIGatewayService) pinCodexTicketEgressFromHeader(ctx context.Contex
 	}
 	if strings.TrimSpace(ticket.HarvestNodeID) == "" && strings.TrimSpace(ticket.HarvestNodeName) == "" {
 		return pinned, noop, nil
+	}
+	if ticket.HarvestNodeProvider == "managed" {
+		proxy, release, err := mihomo.PinNode(ctx, ticket.HarvestNodeID)
+		if err != nil {
+			return "", noop, ErrOpenAICodexTicketUnavailable
+		}
+		return proxy, release, nil
 	}
 	sidecar, err := s.loadCodexTicketDirectedSidecar(ctx, pinned)
 	if err != nil {
