@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -30,14 +31,14 @@ func normalizeDynamicProxies(raw []string) ([]string, error) {
 	}
 	result := make([]string, 0, len(raw))
 	seen := make(map[string]struct{}, len(raw))
-	for _, value := range raw {
+	for index, value := range raw {
 		value = strings.TrimSpace(value)
 		if value == "" {
 			continue
 		}
 		_, normalized, err := parseDynamicProxy(value)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("dynamic proxy line %d: %w", index+1, err)
 		}
 		if _, ok := seen[normalized]; ok {
 			continue
@@ -49,38 +50,66 @@ func normalizeDynamicProxies(raw []string) ([]string, error) {
 }
 
 func parseDynamicProxy(raw string) (dynamicProxy, string, error) {
-	if !strings.Contains(raw, "://") {
-		raw = "http://" + raw
+	raw = strings.TrimSpace(raw)
+	scheme := "http"
+	if prefix, rest, ok := strings.Cut(raw, "://"); ok {
+		scheme, raw = strings.ToLower(prefix), rest
 	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Hostname() == "" || u.User == nil || u.Fragment != "" || u.Path != "" || u.RawQuery != "" {
-		return dynamicProxy{}, "", errors.New("invalid dynamic proxy URL")
-	}
-	scheme := strings.ToLower(u.Scheme)
 	switch scheme {
 	case "http", "https", "socks5", "socks5h":
 	default:
 		return dynamicProxy{}, "", errors.New("dynamic proxy must use http, https, socks5, or socks5h")
 	}
-	portText := u.Port()
-	if portText == "" {
-		return dynamicProxy{}, "", errors.New("dynamic proxy port is required")
+	var candidates []dynamicProxy
+	add := func(endpoint, credentials string, escaped bool) {
+		host, portText, err := net.SplitHostPort(endpoint)
+		if err != nil || host == "" || strings.ContainsAny(host, " /?#@%\\\t\r\n") {
+			return
+		}
+		port, err := strconv.Atoi(portText)
+		if err != nil || port < 1 || port > 65535 {
+			return
+		}
+		username, password, ok := strings.Cut(credentials, ":")
+		if escaped {
+			username, err = url.PathUnescape(username)
+			if err != nil {
+				return
+			}
+			password, err = url.PathUnescape(password)
+			if err != nil {
+				return
+			}
+		}
+		if !ok || username == "" || password == "" || strings.ContainsAny(username+password, "\r\n\x00") {
+			return
+		}
+		candidates = append(candidates, dynamicProxy{scheme, strings.ToLower(host), port, username, password})
 	}
-	port, err := strconv.Atoi(portText)
-	if err != nil || port < 1 || port > 65535 {
-		return dynamicProxy{}, "", errors.New("dynamic proxy port is invalid")
+	// Colon exports are raw credentials; URL-style exports use percent encoding.
+	// Try colon formats first so a literal @ in an exported password survives.
+	for i, char := range raw {
+		if char == ':' {
+			add(raw[:i], raw[i+1:], false)
+			add(raw[i+1:], raw[:i], false)
+		}
 	}
-	password, hasPassword := u.User.Password()
-	if u.User.Username() == "" || !hasPassword || password == "" {
-		return dynamicProxy{}, "", errors.New("dynamic proxy username and password are required")
+	if len(candidates) == 0 {
+		if i := strings.LastIndex(raw, "@"); i >= 0 {
+			add(raw[i+1:], raw[:i], true)
+		}
+		if i := strings.Index(raw, "@"); i >= 0 {
+			add(raw[:i], raw[i+1:], true)
+		}
 	}
-	proxy := dynamicProxy{
-		Scheme:   scheme,
-		Host:     u.Hostname(),
-		Port:     port,
-		Username: u.User.Username(),
-		Password: password,
+	if len(candidates) == 0 {
+		return dynamicProxy{}, "", errors.New("invalid proxy format; use host:port:user:password or user:password@host:port")
 	}
+	if len(candidates) > 1 {
+		return dynamicProxy{}, "", errors.New("ambiguous proxy format; use user:password@host:port with URL-encoded credentials")
+	}
+	proxy := candidates[0]
+	u := url.URL{Scheme: scheme, Host: net.JoinHostPort(proxy.Host, strconv.Itoa(proxy.Port)), User: url.UserPassword(proxy.Username, proxy.Password)}
 	return proxy, u.String(), nil
 }
 

@@ -4,7 +4,7 @@
     <p v-if="error || status?.error" class="text-sm text-red-600" role="alert">{{ error || status?.error }}</p>
     <div class="flex gap-2">
       <button type="button" class="btn btn-secondary" :disabled="pending" @click="refresh">{{ text('检测状态', 'Check status') }}</button>
-      <button v-if="!status?.installed" type="button" class="btn btn-primary" :disabled="pending || status?.busy || !status?.supported" @click="operate('install')">{{ text('检测并安装', 'Install kernel') }}</button>
+      <button v-if="status && !status.installed" type="button" class="btn btn-primary" :disabled="pending || status.busy || !status.supported" @click="operate('install')">{{ text('检测并安装', 'Install kernel') }}</button>
       <button v-else-if="!status?.running" type="button" class="btn btn-secondary" :disabled="pending || status?.busy || !status?.nodes" @click="operate('start')">{{ text('启动内核', 'Start kernel') }}</button>
     </div>
     <template v-if="status?.installed">
@@ -15,6 +15,15 @@
       <label class="flex items-center gap-2 text-sm"><input v-model="append" type="checkbox" />{{ text('追加到已保存订阅（不勾选则替换）', 'Append to saved subscriptions (otherwise replace)') }}</label>
       <button type="button" class="btn btn-primary" :disabled="pending || status.busy" @click="operate('apply')">{{ text('保存并应用', 'Save and apply') }}</button>
       <label class="block text-sm" for="mihomo-dynamic-proxies">{{ text('动态代理（每行一个）', 'Dynamic proxies (one per line)') }}</label>
+      <label class="block text-sm" for="mihomo-dynamic-protocol">{{ text('无协议前缀时使用', 'Default protocol for entries without a prefix') }}</label>
+      <select id="mihomo-dynamic-protocol" v-model="dynamicProtocol" class="input">
+        <option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks5">SOCKS5</option><option value="socks5h">SOCKS5H</option>
+      </select>
+      <p class="text-xs text-gray-500">{{ text('支持以下四种格式；带协议前缀时优先使用该协议。', 'Supports the four formats below; an explicit protocol prefix takes precedence.') }}</p>
+      <pre class="text-xs whitespace-pre-wrap">hostname:port:username:password
+username:password:hostname:port
+username:password@hostname:port
+hostname:port@username:password</pre>
       <textarea id="mihomo-dynamic-proxies" v-model="dynamicProxies" class="input w-full font-mono text-xs" rows="5" autocomplete="off" spellcheck="false" :placeholder="text('http://用户名:密码@主机:端口\n也支持省略 http://', 'http://user:pass@host:port\nThe http:// prefix may be omitted')" />
       <p class="text-xs text-gray-500">{{ text('已保存', 'Saved') }} {{ status.dynamic_proxies || 0 }} {{ text('个动态代理。应用动态代理会替换失败的机场订阅，只保留这些动态节点。', 'dynamic proxies. Applying dynamic proxies replaces remote subscriptions and keeps only these nodes.') }}</p>
       <button type="button" class="btn btn-secondary" :disabled="pending || status.busy" @click="operate('apply_dynamic')">{{ text('应用动态代理', 'Apply dynamic proxies') }}</button>
@@ -49,22 +58,30 @@ const text = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en
 defineEmits<{ ready: [endpoint: string] }>()
 interface Status { installed: boolean; running: boolean; busy: boolean; supported: boolean; phase: string; error?: string; nodes: number; subscriptions: number; dynamic_proxies?: number; endpoint: string; use_once?: boolean; node_states?: CountryNode[]; country_filter?: CountryFilter; country_codes?: string[] }
 const status = ref<Status>(); const subscriptions = ref(''); const dynamicProxies = ref(''); const append = ref(false); const pending = ref(false); const error = ref('')
+const dynamicProtocol = ref('http')
+function dynamicProxyLines(): string[] {
+  return dynamicProxies.value.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+    .map(s => s.includes('://') ? s : `${dynamicProtocol.value}://${s}`)
+}
 let timer: ReturnType<typeof setTimeout> | undefined
 let disposed = false
 async function refresh() {
   if (timer) clearTimeout(timer)
-  try { status.value = (await apiClient.get<Status>('/admin/system/mihomo')).data }
+  try { status.value = (await apiClient.get<Status>('/admin/system/mihomo')).data; error.value = '' }
   catch { error.value = text('无法读取内核状态', 'Cannot read kernel status') }
   if (!disposed && status.value?.busy) timer = setTimeout(refresh, 1500)
 }
 async function operate(action: string, countryFilter?: CountryFilter) {
   pending.value = true; error.value = ''
   try {
-    status.value = (await apiClient.post<Status>('/admin/system/mihomo', { action, subscriptions: action === 'apply' ? subscriptions.value.split(/\r?\n/).filter(s => s.trim()) : [], dynamic_proxies: action === 'apply' || action === 'apply_dynamic' ? dynamicProxies.value.split(/\r?\n/).filter(s => s.trim()) : [], append: append.value, ...(action === 'country_filter' ? { country_filter: countryFilter } : {}) })).data
+    status.value = (await apiClient.post<Status>('/admin/system/mihomo', { action, subscriptions: action === 'apply' ? subscriptions.value.split(/\r?\n/).filter(s => s.trim()) : [], dynamic_proxies: action === 'apply' || action === 'apply_dynamic' ? dynamicProxyLines() : [], append: append.value, ...(action === 'country_filter' ? { country_filter: countryFilter } : {}) })).data
     if (action === 'apply') subscriptions.value = ''
     if (action === 'apply' || action === 'apply_dynamic') dynamicProxies.value = ''
     await refresh()
-  } catch { error.value = text('操作未提交，请检查服务状态后重试', 'Operation was not accepted; check service status and retry') }
+  } catch (cause: unknown) {
+    const message = (cause as { message?: string })?.message
+    error.value = message || text('操作未提交，请检查服务状态后重试', 'Operation was not accepted; check service status and retry')
+  }
   finally { pending.value = false }
 }
 async function importFile(event: Event) {

@@ -64,9 +64,31 @@ describe('Mihomo settings', () => {
     expect(post).toHaveBeenCalledWith('/admin/system/mihomo', expect.objectContaining({
       action: 'apply_dynamic',
       subscriptions: [],
-      dynamic_proxies: ['user:pass@proxy.example:2000', 'user2:pass2@proxy.example:2001']
+      dynamic_proxies: ['http://user:pass@proxy.example:2000', 'http://user2:pass2@proxy.example:2001']
     }))
     expect(wrapper.get<HTMLTextAreaElement>('#mihomo-dynamic-proxies').element.value).toBe('')
+    wrapper.unmount()
+  })
+  it('uses the selected protocol while preserving explicit prefixes and failed drafts', async () => {
+    get.mockResolvedValue({ data: { ...base, installed: true, running: true } })
+    post.mockRejectedValue({ message: 'dynamic proxy line 2: invalid proxy format' })
+    const wrapper = mount(MihomoSettings); await flushPromises()
+    await wrapper.get('#mihomo-dynamic-protocol').setValue('socks5')
+    const draft = 'proxy.example:2000:user:pass\nhttps://user:pass@proxy.example:2001'
+    await wrapper.get('#mihomo-dynamic-proxies').setValue(draft)
+    await wrapper.findAll('button').find(b => b.text() === '应用动态代理')!.trigger('click'); await flushPromises()
+    expect(post).toHaveBeenCalledWith('/admin/system/mihomo', expect.objectContaining({ dynamic_proxies: ['socks5://proxy.example:2000:user:pass', 'https://user:pass@proxy.example:2001'] }))
+    expect(wrapper.text()).toContain('dynamic proxy line 2: invalid proxy format')
+    expect(wrapper.get<HTMLTextAreaElement>('#mihomo-dynamic-proxies').element.value).toBe(draft)
+    await wrapper.findAll('button').find(b => b.text() === '检测状态')!.trigger('click'); await flushPromises()
+    expect(wrapper.text()).not.toContain('dynamic proxy line 2: invalid proxy format')
+    wrapper.unmount()
+  })
+  it('does not offer installation when status loading fails', async () => {
+    get.mockRejectedValue(new Error('network'))
+    const wrapper = mount(MihomoSettings); await flushPromises()
+    expect(wrapper.text()).toContain('无法读取内核状态')
+    expect(wrapper.text()).not.toContain('检测并安装')
     wrapper.unmount()
   })
 })
