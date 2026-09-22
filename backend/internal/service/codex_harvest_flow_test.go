@@ -83,7 +83,7 @@ func TestBuildCodexHarvestFlowSnapshotAndStages(t *testing.T) {
 	require.Equal(t, 1, snapshot.Counts.TicketsReady)
 	require.Equal(t, 1, snapshot.Counts.ProbeHit)
 	require.Equal(t, 1, snapshot.Counts.TicketAccept)
-	require.Equal(t, 1, snapshot.Counts.SelectOK)
+	require.Zero(t, snapshot.Counts.SelectOK)
 	require.Len(t, snapshot.Stages, 5)
 	require.Equal(t, "probe", snapshot.Stages[1].ID)
 	require.Equal(t, "ok", snapshot.Stages[1].Status)
@@ -96,7 +96,7 @@ func TestBuildCodexHarvestFlowSnapshotAndStages(t *testing.T) {
 	for _, event := range snapshot.Events {
 		kinds = append(kinds, event.Kind)
 	}
-	require.Contains(t, kinds, "selected")
+	require.NotContains(t, kinds, "selected")
 }
 
 func TestBuildCodexHarvestFlowSkipHarvestAccount(t *testing.T) {
