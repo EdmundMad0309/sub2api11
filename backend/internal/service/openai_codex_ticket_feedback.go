@@ -93,7 +93,8 @@ func (s *OpenAIGatewayService) observeCodexTicketResponse(req *http.Request, res
 	now := time.Now()
 	targetLen := openAICodexTicketTargetLength(account, cfg)
 	shape, acceptable := openAICodexReturnedStateAcceptable(account, returned, now, targetLen)
-	if acceptable && returned == sent {
+	returnedCookies := responseCookiePairs(resp)
+	if acceptable && returned == sent && len(returnedCookies) == 0 {
 		return
 	}
 	s.openaiCodexTicketStateMu.Lock()
@@ -104,6 +105,9 @@ func (s *OpenAIGatewayService) observeCodexTicketResponse(req *http.Request, res
 			continue
 		}
 		next := *current
+		if len(next.HarvestCookies) > 0 && next.HarvestCookiesAt.IsZero() {
+			next.HarvestCookiesAt = current.CapturedAt
+		}
 		if acceptable {
 			next.State = returned
 			next.Length = len(returned)
@@ -111,6 +115,11 @@ func (s *OpenAIGatewayService) observeCodexTicketResponse(req *http.Request, res
 			next.IssuedAt = shape.IssuedAt
 			next.ExpiresAt = codexTicketExpiryFromShape(cfg.TTLSeconds, shape, now)
 			next.Revoked = false
+			next.CapturedAt = now
+			if len(returnedCookies) > 0 {
+				next.HarvestCookies = mergeCookiePairs(current.HarvestCookies, returnedCookies)
+				next.HarvestCookiesAt = now
+			}
 		} else if current.Standby.valid(now, targetLen) {
 			recordCodexHarvestTicketReject(account, model, "response_mismatch", len(returned), shape.Blocks)
 			next = *current.Standby
@@ -118,7 +127,6 @@ func (s *OpenAIGatewayService) observeCodexTicketResponse(req *http.Request, res
 			next.Revoked = true
 			recordCodexHarvestTicketReject(account, model, "response_mismatch", len(returned), shape.Blocks)
 		}
-		next.CapturedAt = now
 		s.openaiCodexTickets.Store(openAICodexTicketKey(account.ID, model), &next)
 		if s.accountRepo != nil {
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(req.Context()), time.Second)

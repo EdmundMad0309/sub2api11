@@ -58,12 +58,36 @@ type openAICodexTicket struct {
 	HarvestNodeProvider string             `json:"harvest_node_provider,omitempty"`
 	HarvestSessionID    string             `json:"harvest_session_id,omitempty"`
 	HarvestCookies      []string           `json:"harvest_cookies,omitempty"`
+	HarvestCookiesAt    time.Time          `json:"harvest_cookies_at,omitempty"`
 	Standby             *openAICodexTicket `json:"standby,omitempty"`
 	Revoked             bool               `json:"revoked,omitempty"`
 }
 
 func codexTicketCookiesFresh(ticket *openAICodexTicket, now time.Time) bool {
-	return ticket != nil && len(ticket.HarvestCookies) > 0 && !ticket.CapturedAt.IsZero() && now.Before(ticket.CapturedAt.Add(openAICodexCredentialTTL))
+	if ticket == nil || len(ticket.HarvestCookies) == 0 {
+		return false
+	}
+	captured := ticket.HarvestCookiesAt
+	if captured.IsZero() {
+		// Backward compatibility for tickets stored before cookie timestamps
+		// were separated from the turn-state capture timestamp.
+		captured = ticket.CapturedAt
+	}
+	return !captured.IsZero() && now.Before(captured.Add(openAICodexCredentialTTL))
+}
+
+func codexTicketCookiesExpiry(ticket *openAICodexTicket) time.Time {
+	if ticket == nil || len(ticket.HarvestCookies) == 0 {
+		return time.Time{}
+	}
+	captured := ticket.HarvestCookiesAt
+	if captured.IsZero() {
+		captured = ticket.CapturedAt
+	}
+	if captured.IsZero() {
+		return time.Time{}
+	}
+	return captured.Add(openAICodexCredentialTTL)
 }
 
 type openAICodexTicketShape struct {
@@ -279,8 +303,7 @@ func OpenAICodexTicketStatuses(account *Account, cfg config.OpenAICodexTicketCon
 			status.RemainingSeconds = remaining
 			status.ExpiresAt = &exp
 		}
-		if ticket != nil && len(ticket.HarvestCookies) > 0 && !ticket.CapturedAt.IsZero() {
-			cookieExpiry := ticket.CapturedAt.Add(openAICodexCredentialTTL)
+		if cookieExpiry := codexTicketCookiesExpiry(ticket); !cookieExpiry.IsZero() {
 			status.CookieCount = len(ticket.HarvestCookies)
 			status.CookieExpiresAt = &cookieExpiry
 		}

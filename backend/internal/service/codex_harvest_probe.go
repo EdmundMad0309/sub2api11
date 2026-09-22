@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -30,11 +31,41 @@ func responseCookiePairs(resp *http.Response) []string {
 	if resp == nil {
 		return nil
 	}
-	out := make([]string, 0, len(resp.Cookies()))
+	out := make([]string, 0, min(len(resp.Cookies()), 32))
+	total := 0
 	for _, cookie := range resp.Cookies() {
 		if cookie.Name != "" && cookie.Value != "" {
-			out = append(out, cookie.Name+"="+cookie.Value)
+			pair := cookie.Name + "=" + cookie.Value
+			if len(out) >= 32 || total+len(pair) > 8192 {
+				break
+			}
+			out = append(out, pair)
+			total += len(pair)
 		}
+	}
+	return out
+}
+
+func mergeCookiePairs(existing, incoming []string) []string {
+	merged := make(map[string]string, len(existing)+len(incoming))
+	for _, pairs := range [][]string{existing, incoming} {
+		for _, pair := range pairs {
+			name, value, ok := strings.Cut(pair, "=")
+			name = strings.TrimSpace(name)
+			if !ok || name == "" || value == "" {
+				continue
+			}
+			merged[name] = value
+		}
+	}
+	names := make([]string, 0, len(merged))
+	for name := range merged {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		out = append(out, name+"="+merged[name])
 	}
 	return out
 }
@@ -183,5 +214,5 @@ func codexHarvestTicket(account *Account, model string, r codexHarvestProbeResul
 	}
 	return &openAICodexTicket{AccountID: account.ID, Model: model, State: r.State, Length: len(r.State),
 		CapturedAt: now, ExpiresAt: expires, Attempts: attempts, Blocks: r.Shape.Blocks, IssuedAt: r.Shape.IssuedAt,
-		HarvestCookies: append([]string(nil), r.Cookies...)}
+		HarvestCookies: append([]string(nil), r.Cookies...), HarvestCookiesAt: now}
 }
