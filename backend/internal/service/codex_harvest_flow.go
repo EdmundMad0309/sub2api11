@@ -736,7 +736,14 @@ func BuildCodexHarvestFlow(ctx context.Context, cfg *config.Config, settings *Se
 	}
 	ticketCfg.Enabled = enabled
 	ticketCfg.FailClosed = failClosed
-	events := listCodexHarvestFlowEvents()
+	rawEvents := listCodexHarvestFlowEvents()
+	events := make([]CodexHarvestFlowEvent, 0, len(rawEvents))
+	for _, event := range rawEvents {
+		if event.Stage == "select" {
+			continue
+		}
+		events = append(events, event)
+	}
 	for i := range events {
 		if strings.TrimSpace(events[i].Node) != "" {
 			events[i].Node = mihomo.NodeDisplayName(events[i].Node)

@@ -777,7 +777,6 @@ func (s *OpenAIGatewayService) openAICodexTicketShouldYieldStickyTo(sticky *Acco
 		if !s.openAICodexTicketReadyForRequest(account, requestedModel, requireCompact) {
 			continue
 		}
-		recordCodexHarvestSelect(sticky, requestedModel, "yield", "higher_priority_ticket", account.Name)
 		return true
 	}
 	return false
