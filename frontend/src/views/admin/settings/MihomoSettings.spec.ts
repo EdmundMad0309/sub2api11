@@ -56,4 +56,17 @@ describe('Mihomo settings', () => {
     expect(post).toHaveBeenCalledWith('/admin/system/mihomo', expect.objectContaining({ action: 'apply', subscriptions: ['https://example.org/a?token=secret', 'https://example.org/b'] }))
     expect(wrapper.get<HTMLTextAreaElement>('textarea').element.value).toBe(''); wrapper.unmount()
   })
+  it('applies dynamic proxies without sending them through the subscription URL field', async () => {
+    get.mockResolvedValue({ data: { ...base, installed: true, running: true } })
+    const wrapper = mount(MihomoSettings); await flushPromises()
+    await wrapper.get('#mihomo-dynamic-proxies').setValue('user:pass@proxy.example:2000\nuser2:pass2@proxy.example:2001')
+    await wrapper.findAll('button').find(b => b.text() === '应用动态代理')!.trigger('click'); await flushPromises()
+    expect(post).toHaveBeenCalledWith('/admin/system/mihomo', expect.objectContaining({
+      action: 'apply_dynamic',
+      subscriptions: [],
+      dynamic_proxies: ['user:pass@proxy.example:2000', 'user2:pass2@proxy.example:2001']
+    }))
+    expect(wrapper.get<HTMLTextAreaElement>('#mihomo-dynamic-proxies').element.value).toBe('')
+    wrapper.unmount()
+  })
 })

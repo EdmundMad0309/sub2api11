@@ -55,6 +55,7 @@ type Status struct {
 	Phase            string        `json:"phase"`
 	Error            string        `json:"error,omitempty"`
 	Subscriptions    int           `json:"subscriptions"`
+	DynamicProxies   int           `json:"dynamic_proxies"`
 	Nodes            int           `json:"nodes"`
 	Endpoint         string        `json:"endpoint"`
 	Supported        bool          `json:"supported"`
@@ -72,14 +73,15 @@ type NodeStatus struct {
 }
 
 type saved struct {
-	CountryFilter CountryFilter                 `json:"country_filter"`
-	Countries     map[string]CountryObservation `json:"countries,omitempty"`
-	UseOnce       bool                          `json:"use_once,omitempty"`
-	URLs          []string                      `json:"urls"`
-	Nodes         []map[string]any              `json:"nodes"`
-	NodeNames     map[string]string             `json:"node_names,omitempty"`
-	Secret        string                        `json:"secret"`
-	Disabled      map[string]string             `json:"disabled,omitempty"`
+	CountryFilter  CountryFilter                 `json:"country_filter"`
+	Countries      map[string]CountryObservation `json:"countries,omitempty"`
+	UseOnce        bool                          `json:"use_once,omitempty"`
+	URLs           []string                      `json:"urls"`
+	DynamicProxies []string                      `json:"dynamic_proxies,omitempty"`
+	Nodes          []map[string]any              `json:"nodes"`
+	NodeNames      map[string]string             `json:"node_names,omitempty"`
+	Secret         string                        `json:"secret"`
+	Disabled       map[string]string             `json:"disabled,omitempty"`
 }
 
 type Manager struct {
@@ -128,6 +130,7 @@ func (m *Manager) Status() Status {
 	s.CountryCodes = countryCodes()
 	s.UseOnce = m.saved.UseOnce
 	s.Subscriptions = len(m.saved.URLs)
+	s.DynamicProxies = len(m.saved.DynamicProxies)
 	s.Nodes = len(m.saved.Nodes)
 	for _, n := range m.saved.Nodes {
 		if name, ok := n["name"].(string); ok {
@@ -161,14 +164,25 @@ func (m *Manager) Status() Status {
 
 // Submit serializes long-running work and never returns subprocess output or URLs.
 func (m *Manager) Submit(action string, urls []string, appendURLs bool, filters ...*CountryFilter) error {
+	return m.SubmitWithDynamicProxies(action, urls, nil, appendURLs, filters...)
+}
+
+// SubmitWithDynamicProxies accepts raw proxy URLs in addition to remote
+// Clash/Mihomo subscriptions. The legacy Submit method remains unchanged for
+// callers that do not use the dynamic source.
+func (m *Manager) SubmitWithDynamicProxies(action string, urls, dynamicProxies []string, appendURLs bool, filters ...*CountryFilter) error {
 	op, node, hasNode := strings.Cut(action, "/")
-	if op != "install" && op != "apply" && op != "start" && op != "disable" && op != "recover" && op != "probe" && op != "once_on" && op != "once_off" && op != "country_filter" && op != "country_scan" && op != "country_probe" {
+	if op != "install" && op != "apply" && op != "apply_dynamic" && op != "start" && op != "disable" && op != "recover" && op != "probe" && op != "once_on" && op != "once_off" && op != "country_filter" && op != "country_scan" && op != "country_probe" {
 		return errors.New("unknown operation")
 	}
 	if (op == "disable" || op == "recover" || op == "probe" || op == "country_probe") != hasNode || (hasNode && (node == "" || strings.Contains(node, "/"))) {
 		return errors.New("invalid operation target")
 	}
 	clean, err := normalizeURLs(urls)
+	if err != nil {
+		return err
+	}
+	cleanDynamic, err := normalizeDynamicProxies(dynamicProxies)
 	if err != nil {
 		return err
 	}
@@ -195,6 +209,14 @@ func (m *Manager) Submit(action string, urls []string, appendURLs bool, filters 
 	if op == "country_filter" {
 		next.CountryFilter = filter
 	}
+	if op == "apply_dynamic" {
+		if len(cleanDynamic) == 0 {
+			m.mu.Unlock()
+			return errors.New("a dynamic proxy is required")
+		}
+		next.URLs = nil
+		next.DynamicProxies = cleanDynamic
+	}
 	if action == "apply" && len(clean) > 0 {
 		if appendURLs {
 			merged, mergeErr := normalizeURLs(append(append([]string{}, next.URLs...), clean...))
@@ -205,6 +227,18 @@ func (m *Manager) Submit(action string, urls []string, appendURLs bool, filters 
 			next.URLs = merged
 		} else {
 			next.URLs = clean
+		}
+	}
+	if action == "apply" && len(cleanDynamic) > 0 {
+		if appendURLs {
+			merged, mergeErr := normalizeDynamicProxies(append(append([]string{}, next.DynamicProxies...), cleanDynamic...))
+			if mergeErr != nil {
+				m.mu.Unlock()
+				return mergeErr
+			}
+			next.DynamicProxies = merged
+		} else {
+			next.DynamicProxies = cleanDynamic
 		}
 	}
 	m.state.Busy = true
@@ -297,13 +331,30 @@ func (m *Manager) run(ctx context.Context, action string, next saved) error {
 	if !installed {
 		return errors.New("install the kernel first")
 	}
-	if action == "apply" {
-		if len(next.URLs) == 0 {
-			return errors.New("a subscription is required")
+	if action == "apply" || action == "apply_dynamic" {
+		var nodes []map[string]any
+		var names map[string]string
+		if len(next.URLs) > 0 {
+			var err error
+			nodes, names, err = m.fetchNodes(ctx, next.URLs)
+			if err != nil {
+				return err
+			}
+		} else {
+			nodes, names = []map[string]any{}, map[string]string{}
 		}
-		nodes, names, err := m.fetchNodes(ctx, next.URLs)
-		if err != nil {
-			return err
+		if len(next.DynamicProxies) > 0 {
+			dynamicNodes, dynamicNames, err := dynamicProxyNodes(next.DynamicProxies)
+			if err != nil {
+				return err
+			}
+			nodes = append(nodes, dynamicNodes...)
+			for name, display := range dynamicNames {
+				names[name] = display
+			}
+		}
+		if len(nodes) == 0 {
+			return errors.New("save a valid subscription or dynamic proxy first")
 		}
 		next.Nodes = nodes
 		next.NodeNames = names
