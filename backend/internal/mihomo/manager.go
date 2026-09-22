@@ -500,16 +500,23 @@ func (m *Manager) get(ctx context.Context, address string, limit int64, ua strin
 }
 
 func (m *Manager) getViaProxy(ctx context.Context, address string, limit int64, ua, proxyAddress string) ([]byte, error) {
-	proxyURL, err := url.Parse(proxyAddress)
-	if err != nil || proxyURL.Scheme == "" || proxyURL.Host == "" {
-		return nil, errors.New("invalid subscription proxy")
+	var proxyURL *url.URL
+	if proxyAddress != "" {
+		var err error
+		proxyURL, err = url.Parse(proxyAddress)
+		if err != nil || proxyURL.Scheme == "" || proxyURL.Host == "" {
+			return nil, errors.New("invalid subscription proxy")
+		}
 	}
 	baseTransport, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
 		return nil, errors.New("subscription proxy transport unavailable")
 	}
 	transport := baseTransport.Clone()
-	transport.Proxy = http.ProxyURL(proxyURL)
+	transport.Proxy = nil // Explicit direct access must not inherit HTTP_PROXY.
+	if proxyURL != nil {
+		transport.Proxy = http.ProxyURL(proxyURL)
+	}
 	client := &http.Client{Transport: transport, Timeout: m.client.Timeout}
 	defer client.CloseIdleConnections()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
@@ -600,8 +607,17 @@ func (m *Manager) fetchNodes(ctx context.Context, urls []string) ([]map[string]a
 		var err error
 		if proxy != "" {
 			b, err = m.getViaProxy(ctx, address, 4<<20, "clash.meta", proxy)
+			if err != nil && ctx.Err() == nil {
+				// Subscription retrieval must work even when the current exit is
+				// broken. This fallback never applies to harvest/model traffic.
+				proxyErr := err
+				b, err = m.getViaProxy(ctx, address, 4<<20, "clash.meta", "")
+				if err != nil {
+					err = fmt.Errorf("subscription download failed via proxy (%v) and direct (%v)", proxyErr, err)
+				}
+			}
 		} else {
-			b, err = m.get(ctx, address, 4<<20, "clash.meta")
+			b, err = m.getViaProxy(ctx, address, 4<<20, "clash.meta", "")
 		}
 		if err != nil {
 			return nil, nil, err
