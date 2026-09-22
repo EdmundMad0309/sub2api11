@@ -25,7 +25,7 @@ func TestHarvestPostgresPersistenceAndReset(t *testing.T) {
 	defer cancel()
 	db, err := sql.Open("postgres", dsn)
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	_, err = db.ExecContext(ctx, `SET search_path TO pg_temp; CREATE TEMP TABLE accounts (id BIGINT PRIMARY KEY); INSERT INTO accounts VALUES (1)`)

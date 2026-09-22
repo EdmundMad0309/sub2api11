@@ -23,6 +23,20 @@ type codexHarvestProbeResult struct {
 	Shape      openAICodexTicketShape
 	Kind       string
 	Sent       bool
+	Cookies    []string
+}
+
+func responseCookiePairs(resp *http.Response) []string {
+	if resp == nil {
+		return nil
+	}
+	out := make([]string, 0, len(resp.Cookies()))
+	for _, cookie := range resp.Cookies() {
+		if cookie.Name != "" && cookie.Value != "" {
+			out = append(out, cookie.Name+"="+cookie.Value)
+		}
+	}
+	return out
 }
 
 func bindCodexHarvestEgress(ticket *openAICodexTicket, attempt codexHarvestAttempt, session string) {
@@ -81,6 +95,9 @@ func (s *OpenAIGatewayService) requestCodexHarvestProbe(ctx context.Context, acc
 		out.Err = err
 		return
 	}
+	if previous := s.lookupOpenAICodexTicket(account, model); codexTicketCookiesFresh(previous, time.Now()) {
+		req.Header.Set("Cookie", strings.Join(previous.HarvestCookies, "; "))
+	}
 	applyOpenAICodexTicketHarvestIdentity(req.Header, model)
 	if ctx.Err() != nil {
 		out.Err = ctx.Err()
@@ -105,12 +122,13 @@ func (s *OpenAIGatewayService) requestCodexHarvestProbe(ctx context.Context, acc
 	}
 	out.Status = resp.StatusCode
 	out.State = extractOpenAICodexTurnState(resp.Header)
+	out.Cookies = responseCookiePairs(resp)
 	out.RetryAfter = codexHarvestRetryAfter(resp.Header.Get("Retry-After"), time.Now())
 	if resp.Body == nil {
 		out.Err = errors.New("probe response body missing")
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	response, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
 	if err != nil || len(response) > 1<<20 {
 		out.Err = errors.New("probe response incomplete")
@@ -164,5 +182,6 @@ func codexHarvestTicket(account *Account, model string, r codexHarvestProbeResul
 		expires = issuedExpiry
 	}
 	return &openAICodexTicket{AccountID: account.ID, Model: model, State: r.State, Length: len(r.State),
-		CapturedAt: now, ExpiresAt: expires, Attempts: attempts, Blocks: r.Shape.Blocks, IssuedAt: r.Shape.IssuedAt}
+		CapturedAt: now, ExpiresAt: expires, Attempts: attempts, Blocks: r.Shape.Blocks, IssuedAt: r.Shape.IssuedAt,
+		HarvestCookies: append([]string(nil), r.Cookies...)}
 }

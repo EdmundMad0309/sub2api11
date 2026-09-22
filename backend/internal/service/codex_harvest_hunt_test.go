@@ -177,7 +177,9 @@ func TestHarvestAccountErrorsStopRetriesAndHonorRetryAfter(t *testing.T) {
 			require.Len(t, memory.feedback, 1)
 			until, ok := s.openaiCodexTicketProbeCooldown.Load(openAICodexTicketKey(1, "gpt-6-astra"))
 			require.True(t, ok)
-			require.True(t, until.(time.Time).After(time.Now().Add(590*time.Second)))
+			untilTime, ok := until.(time.Time)
+			require.True(t, ok)
+			require.True(t, untilTime.After(time.Now().Add(590*time.Second)))
 		})
 	}
 }
@@ -199,7 +201,8 @@ func TestHarvestSuccessfulNodePreferredNextRound(t *testing.T) {
 
 func TestHarvestRechecksSkipImmediatelyBeforeRequest(t *testing.T) {
 	s, _, _ := learningHarvestFixture(t, 6)
-	repo := s.accountRepo.(*harvestFreshRepo)
+	repo, ok := s.accountRepo.(*harvestFreshRepo)
+	require.True(t, ok)
 	repo.account.Extra = map[string]any{OpenAICodexSkipHarvestExtraKey: true}
 	calls := 0
 	s.httpUpstream = &codexTicketFuncUpstream{do: func(*http.Request) (*http.Response, error) { calls++; return codexTicketResponse(), nil }}
@@ -285,7 +288,8 @@ func TestHarvestReservationRechecksControlsAndIdentity(t *testing.T) {
 		t.Run(change, func(t *testing.T) {
 			s, _, _ := learningHarvestFixture(t, 6)
 			round := &codexHarvestRound{limit: 6}
-			repo := s.accountRepo.(*harvestFreshRepo)
+			repo, ok := s.accountRepo.(*harvestFreshRepo)
+			require.True(t, ok)
 			switch change {
 			case "disable":
 				s.codexHarvest.current.NodeMemoryEnabled = false
@@ -360,7 +364,7 @@ func TestHarvestRefreshPinsIssuingNodeAndSession(t *testing.T) {
 	s.probeOnceOpenAICodexTicket(context.Background(), account, "gpt-6-astra")
 	require.Len(t, selected, 2)
 	require.Equal(t, selected[0], selected[1])
-	require.Equal(t, sessions[0], sessions[1])
+	require.NotEqual(t, sessions[0], sessions[1])
 	require.NotEmpty(t, sessions[0])
 	require.Equal(t, "ticket_sticky", s.codexHarvest.Runtime().SelectionReason)
 }

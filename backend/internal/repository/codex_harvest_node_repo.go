@@ -19,7 +19,7 @@ const harvestNodeColumns = `id, pool_id, node_id, node_name, provider, account_i
  last_success, cooldown_until, latency_ms, last_result, updated_at`
 
 func scanHarvestNodes(rows *sql.Rows) ([]service.CodexHarvestNodeRecord, error) {
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := []service.CodexHarvestNodeRecord{}
 	for rows.Next() {
 		var r service.CodexHarvestNodeRecord
@@ -57,7 +57,7 @@ func (r *codexHarvestNodeRepository) List(ctx context.Context, offset, limit int
 	if err != nil {
 		return page, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM codex_harvest_nodes`).Scan(&page.Total); err != nil {
 		return page, err
 	}
@@ -80,7 +80,7 @@ func (r *codexHarvestNodeRepository) Reset(ctx context.Context, id int64) error 
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	// Reset and feedback acquire the epoch row first, in the same lock order.
 	if _, err := tx.ExecContext(ctx, `UPDATE codex_harvest_learning_epoch SET generation=generation+1 WHERE id=1`); err != nil {
 		return err
@@ -112,7 +112,7 @@ func (r *codexHarvestNodeRepository) Record(ctx context.Context, f service.Codex
 	if err != nil {
 		return false, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var generation int64
 	if err := tx.QueryRowContext(ctx, `SELECT generation FROM codex_harvest_learning_epoch WHERE id=1 FOR UPDATE`).Scan(&generation); err != nil {
 		return false, err

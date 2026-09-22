@@ -34,6 +34,7 @@ const (
 	openAICodexTicketDefaultSolModel = "gpt-5.6-sol"
 	openAICodexTicketPersonalBlocks  = 10
 	openAICodexTicketTeamBlocks      = 12
+	openAICodexCredentialTTL         = 240 * time.Second
 )
 
 // ErrOpenAICodexTicketUnavailable 表示该号该模型没有可用的 292 门票，
@@ -56,8 +57,13 @@ type openAICodexTicket struct {
 	HarvestNodeName     string             `json:"harvest_node_name,omitempty"`
 	HarvestNodeProvider string             `json:"harvest_node_provider,omitempty"`
 	HarvestSessionID    string             `json:"harvest_session_id,omitempty"`
+	HarvestCookies      []string           `json:"harvest_cookies,omitempty"`
 	Standby             *openAICodexTicket `json:"standby,omitempty"`
 	Revoked             bool               `json:"revoked,omitempty"`
+}
+
+func codexTicketCookiesFresh(ticket *openAICodexTicket, now time.Time) bool {
+	return ticket != nil && len(ticket.HarvestCookies) > 0 && !ticket.CapturedAt.IsZero() && now.Before(ticket.CapturedAt.Add(openAICodexCredentialTTL))
 }
 
 type openAICodexTicketShape struct {
@@ -534,15 +540,15 @@ func (s *OpenAIGatewayService) applyOpenAICodexTicket(ctx context.Context, accou
 		return nil
 	}
 	cfg := s.openAICodexTicketConfig()
-	if s.openAICodexTicketHarvestExcluded(account) {
-		if !cfg.FailClosed {
-			return nil
-		}
+	if !openAICodexSkipHarvest(account) && cfg.FailClosed && s.openAICodexTicketHarvestExcluded(account) {
 		return denyOpenAITicket()
 	}
 	ticket := s.lookupOpenAICodexTicket(account, model)
 	if ticket.valid(time.Now(), openAICodexTicketTargetLength(account, cfg)) {
 		h.Set(openAICodexTurnStateHeader, ticket.State)
+		return nil
+	}
+	if openAICodexSkipHarvest(account) {
 		return nil
 	}
 	if openAICodexSkipHarvest(account) {
@@ -803,13 +809,6 @@ func (s *OpenAIGatewayService) ticketProbeCoolingDown(accountID int64, model str
 		return false
 	}
 	return true
-}
-
-func (s *OpenAIGatewayService) cooldownTicketProbe(accountID int64, model string, cfg config.OpenAICodexTicketConfig) {
-	if s == nil {
-		return
-	}
-	s.openaiCodexTicketProbeCooldown.Store(openAICodexTicketKey(accountID, model), time.Now().Add(time.Duration(cfg.HarvestCooldownSeconds)*time.Second))
 }
 
 func jsonString(v string) string {

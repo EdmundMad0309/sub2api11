@@ -55,7 +55,7 @@ func LoadDirectedSidecar(dataDir, proxyURL string) (*DirectedSidecar, error) {
 	if err != nil {
 		return nil, errors.New("harvest sidecar config unavailable")
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	raw, err := root.ReadFile("config.yaml")
 	if err != nil {
 		return nil, errors.New("harvest sidecar config unavailable")
@@ -106,7 +106,7 @@ func (s *DirectedSidecar) identities() (map[string]HarvestNode, error) {
 	if err != nil {
 		return nil, errors.New("harvest provider directory unavailable")
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	out := map[string]HarvestNode{}
 	duplicates := map[string]bool{}
 	for provider, cfg := range s.config.Providers {

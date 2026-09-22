@@ -12,7 +12,7 @@ import (
 func TestHarvestFeedbackRejectsOldGeneration(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT generation.*FOR UPDATE").WillReturnRows(sqlmock.NewRows([]string{"generation"}).AddRow(2))
 	mock.ExpectRollback()
@@ -25,7 +25,7 @@ func TestHarvestFeedbackRejectsOldGeneration(t *testing.T) {
 func TestHarvestResetEpochAndRowsAreAtomic(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE codex_harvest_learning_epoch").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("DELETE FROM codex_harvest_nodes").WithArgs(int64(17)).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -37,7 +37,7 @@ func TestHarvestResetEpochAndRowsAreAtomic(t *testing.T) {
 func TestHarvestCancelledDoesNotPenalizeNode(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	stored, err := NewCodexHarvestNodeRepository(db).Record(context.Background(), service.CodexHarvestNodeFeedback{Result: "cancelled"})
 	require.NoError(t, err)
 	require.False(t, stored)

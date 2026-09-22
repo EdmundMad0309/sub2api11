@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/mihomo"
 	"github.com/tidwall/gjson"
@@ -66,6 +67,11 @@ func restoreBoundCodexTicketHarvestIdentity(h http.Header, ticket *openAICodexTi
 	prevBeta := strings.TrimSpace(h.Get("OpenAI-Beta"))
 	if session := harvestTicketSessionID(ticket); session != "" {
 		h.Set("session_id", session)
+	}
+	if codexTicketCookiesFresh(ticket, time.Now()) {
+		h.Set("Cookie", strings.Join(ticket.HarvestCookies, "; "))
+	} else {
+		h.Del("Cookie")
 	}
 	for _, key := range boundCodexTicketForeignIdentityHeaders {
 		h.Del(key)
@@ -152,7 +158,7 @@ func snapshotHTTPRequestBody(req *http.Request) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		defer body.Close()
+		defer func() { _ = body.Close() }()
 		return io.ReadAll(body)
 	}
 	if req.Body == nil {

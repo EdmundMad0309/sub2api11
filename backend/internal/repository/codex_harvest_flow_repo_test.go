@@ -13,7 +13,7 @@ import (
 func TestHarvestFlowAppendInsertsThenCaps(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	at := time.Date(2026, 9, 21, 4, 0, 0, 0, time.UTC)
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO codex_harvest_flow_events").
@@ -34,7 +34,7 @@ func TestHarvestFlowAppendInsertsThenCaps(t *testing.T) {
 func TestHarvestFlowListReturnsChronological(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	newer := time.Date(2026, 9, 21, 4, 1, 0, 0, time.UTC)
 	older := time.Date(2026, 9, 21, 4, 0, 0, 0, time.UTC)
 	mock.ExpectQuery("SELECT event_id, at, stage, kind").
@@ -55,7 +55,7 @@ func TestHarvestFlowListReturnsChronological(t *testing.T) {
 func TestHarvestFlowAppendRejectsEmptyID(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	require.Error(t, NewCodexHarvestFlowRepository(db).Append(context.Background(), service.CodexHarvestFlowEvent{}))
 	require.NoError(t, mock.ExpectationsWereMet())
 }

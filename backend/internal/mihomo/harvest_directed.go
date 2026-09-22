@@ -69,7 +69,7 @@ func (s *DirectedSidecar) control(ctx context.Context, method, path string, body
 	if err != nil {
 		return errors.New("harvest controller unavailable")
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("harvest controller status %d", resp.StatusCode)
 	}

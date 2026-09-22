@@ -29,7 +29,7 @@ func (r *codexHarvestFlowRepository) List(ctx context.Context, limit int) ([]ser
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	newestFirst := make([]service.CodexHarvestFlowEvent, 0, limit)
 	for rows.Next() {
 		var event service.CodexHarvestFlowEvent
@@ -60,7 +60,7 @@ func (r *codexHarvestFlowRepository) Append(ctx context.Context, event service.C
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx, `INSERT INTO codex_harvest_flow_events
  (event_id, at, stage, kind, account_id, account_name, model, node, http_status, length, blocks,
  expected_length, expected_blocks, accepted, standby, result, reason, detail)

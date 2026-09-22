@@ -51,6 +51,7 @@ func (s *OpenAIGatewayService) ExecuteManualHarvest(ctx context.Context, req Man
 	if s == nil || s.accountRepo == nil {
 		return errors.New("gateway service unavailable")
 	}
+	normalizeManualHarvestRequest(&req)
 	req, err := NormalizeManualHarvestRequest(req)
 	if err != nil {
 		return err
@@ -270,21 +271,38 @@ func NormalizeManualHarvestRequest(req ManualHarvestRequest) (ManualHarvestReque
 	if req.ProbeIntervalSeconds <= 0 {
 		req.ProbeIntervalSeconds = 10
 	}
-	if req.ProbeIntervalSeconds < 1 || req.ProbeIntervalSeconds > 300 {
+	if req.ProbeIntervalSeconds < manualHarvestProbeIntervalMin || req.ProbeIntervalSeconds > manualHarvestProbeIntervalMax {
 		return req, errors.New("probe_interval_seconds must be 1-300")
 	}
 	if req.RateLimitCooldownSeconds <= 0 {
 		req.RateLimitCooldownSeconds = 30
 	}
-	if req.RateLimitCooldownSeconds < 1 || req.RateLimitCooldownSeconds > 60 {
+	if req.RateLimitCooldownSeconds < manualHarvestRateLimitCooldownMin || req.RateLimitCooldownSeconds > manualHarvestRateLimitCooldownMax {
 		return req, errors.New("rate_limit_cooldown_seconds must be 1-60")
 	}
 	if req.MaxAttempts <= 0 {
 		req.MaxAttempts = 20
 	}
-	if req.MaxAttempts < 1 || req.MaxAttempts > 100 {
+	if req.MaxAttempts < manualHarvestMaxAttemptsMin || req.MaxAttempts > manualHarvestMaxAttemptsMax {
 		return req, errors.New("max_attempts must be 1-100")
 	}
+	seen := map[string]bool{}
+	models := make([]string, 0, len(req.Models))
+	for _, model := range req.Models {
+		model = normalizeOpenAICodexTicketModel(model)
+		if model == "" || seen[model] {
+			continue
+		}
+		seen[model] = true
+		models = append(models, model)
+		if len(models) >= manualHarvestMaxModels {
+			break
+		}
+	}
+	if len(models) == 0 {
+		models = []string{openAICodexTicketDefaultModel, openAICodexTicketDefaultSolModel}
+	}
+	req.Models = models
 	return req, nil
 }
 
@@ -474,48 +492,8 @@ func normalizeManualHarvestRequest(req *ManualHarvestRequest) {
 	if req == nil {
 		return
 	}
-	if req.ProbeIntervalSeconds == 0 {
-		req.ProbeIntervalSeconds = 10
+	normalized, err := NormalizeManualHarvestRequest(*req)
+	if err == nil {
+		*req = normalized
 	}
-	if req.ProbeIntervalSeconds < manualHarvestProbeIntervalMin {
-		req.ProbeIntervalSeconds = manualHarvestProbeIntervalMin
-	}
-	if req.ProbeIntervalSeconds > manualHarvestProbeIntervalMax {
-		req.ProbeIntervalSeconds = manualHarvestProbeIntervalMax
-	}
-	if req.RateLimitCooldownSeconds == 0 {
-		req.RateLimitCooldownSeconds = 30
-	}
-	if req.RateLimitCooldownSeconds < manualHarvestRateLimitCooldownMin {
-		req.RateLimitCooldownSeconds = manualHarvestRateLimitCooldownMin
-	}
-	if req.RateLimitCooldownSeconds > manualHarvestRateLimitCooldownMax {
-		req.RateLimitCooldownSeconds = manualHarvestRateLimitCooldownMax
-	}
-	if req.MaxAttempts == 0 {
-		req.MaxAttempts = 20
-	}
-	if req.MaxAttempts < manualHarvestMaxAttemptsMin {
-		req.MaxAttempts = manualHarvestMaxAttemptsMin
-	}
-	if req.MaxAttempts > manualHarvestMaxAttemptsMax {
-		req.MaxAttempts = manualHarvestMaxAttemptsMax
-	}
-	seen := map[string]bool{}
-	out := make([]string, 0, len(req.Models))
-	for _, model := range req.Models {
-		model = normalizeOpenAICodexTicketModel(model)
-		if model == "" || seen[model] {
-			continue
-		}
-		seen[model] = true
-		out = append(out, model)
-		if len(out) >= manualHarvestMaxModels {
-			break
-		}
-	}
-	if len(out) == 0 {
-		out = []string{openAICodexTicketDefaultModel, openAICodexTicketDefaultSolModel}
-	}
-	req.Models = out
 }

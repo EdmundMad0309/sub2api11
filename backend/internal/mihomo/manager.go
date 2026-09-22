@@ -453,7 +453,11 @@ func (m *Manager) getViaProxy(ctx context.Context, address string, limit int64, 
 	if err != nil || proxyURL.Scheme == "" || proxyURL.Host == "" {
 		return nil, errors.New("invalid subscription proxy")
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	baseTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, errors.New("subscription proxy transport unavailable")
+	}
+	transport := baseTransport.Clone()
 	transport.Proxy = http.ProxyURL(proxyURL)
 	client := &http.Client{Transport: transport, Timeout: m.client.Timeout}
 	defer client.CloseIdleConnections()
