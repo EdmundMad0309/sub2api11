@@ -98,3 +98,25 @@ func TestHTTPTraceKeepsOuterHooksAndReuse(t *testing.T) {
 		}
 	})
 }
+
+func TestHeartbeatFlushIsNotOutput(t *testing.T) {
+	c := New(time.Now(), 0)
+	ctx := With(context.Background(), c)
+	c.Written(time.Now(), 4, nil, true)
+	OutputFlushed(ctx)
+	Output(ctx, true, false, "")
+	c.Written(time.Now(), 4, nil, true) // even after parsing, a heartbeat is not output
+	c.mu.Lock()
+	_, wrong := c.data.Events["first_output_flush"]
+	c.mu.Unlock()
+	if wrong {
+		t.Fatal("heartbeat counted as output")
+	}
+	OutputFlushed(ctx)
+	c.Finish(200, false)
+	c.WhenFinished(func(s Snapshot) {
+		if _, ok := s.Events["first_output_flush"]; !ok {
+			t.Fatal("output flush missing")
+		}
+	})
+}

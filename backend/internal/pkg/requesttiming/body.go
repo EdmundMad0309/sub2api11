@@ -1,6 +1,7 @@
 package requesttiming
 
 import (
+	"context"
 	"io"
 	"time"
 )
@@ -60,8 +61,27 @@ func (c *Collector) Written(start time.Time, n int, err error, flush bool) {
 	}
 	if flush {
 		c.event("first_flush", end)
-		if _, ok := c.data.Events["first_semantic"]; ok {
-			c.event("first_output_flush", end)
-		}
 	}
+}
+
+// OutputFlushed is called by SSE parsers after flushing buffered output, never
+// by heartbeat writers. It does not claim the remote client received bytes.
+func OutputFlushed(ctx context.Context) {
+	c := From(ctx)
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.finished || c.data.DownstreamError {
+		return
+	}
+	if tr, ok := ctx.Value(attemptKey{}).(*Trace); ok && tr.c == c {
+		if _, seen := c.data.Attempts[tr.index].Events["first_semantic"]; !seen {
+			return
+		}
+	} else if _, seen := c.data.Events["first_semantic"]; !seen {
+		return
+	}
+	c.event("first_output_flush", time.Now())
 }

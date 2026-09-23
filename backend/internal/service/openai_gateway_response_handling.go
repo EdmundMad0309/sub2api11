@@ -157,6 +157,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 		}
 		flusher.Flush()
+		requesttiming.OutputFlushed(ctx)
 		return nil
 	}
 

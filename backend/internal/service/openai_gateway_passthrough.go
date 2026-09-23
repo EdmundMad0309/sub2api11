@@ -2035,6 +2035,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithImage(
 			return
 		}
 		flusher.Flush()
+		requesttiming.OutputFlushed(ctx)
 		flushPending = false
 	}
 	defer flushPendingOutput()
