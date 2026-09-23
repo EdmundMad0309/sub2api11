@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -117,6 +118,7 @@ func errorKind(err error) string {
 }
 
 type responseBody struct {
+	closing atomic.Bool
 	io.ReadCloser
 	trace *Trace
 	once  sync.Once
@@ -129,7 +131,15 @@ func (b *responseBody) Read(p []byte) (int, error) {
 		if err == io.EOF {
 			a.BodyEOF = true
 		} else if err != nil {
-			a.Error = errorKind(err)
+			// The SSE parser intentionally stops at a successful terminal event.
+			// Closing its body can cancel the read pump; that is cleanup, not
+			// a failed upstream attempt. Preserve cancellations before Close,
+			// and any non-successful terminal or other transport error.
+			if errors.Is(err, context.Canceled) && b.closing.Load() && a.Terminal == "completed" {
+				a.CleanupCanceled = true
+			} else {
+				a.Error = errorKind(err)
+			}
 		}
 	})
 	if err != nil {
@@ -140,7 +150,12 @@ func (b *responseBody) Read(p []byte) (int, error) {
 func (b *responseBody) end() {
 	b.once.Do(func() { b.trace.update(func(a *Attempt) { v := b.trace.c.offset(time.Now()); a.EndMS = &v }) })
 }
-func (b *responseBody) Close() error { err := b.ReadCloser.Close(); b.end(); return err }
+func (b *responseBody) Close() error {
+	b.closing.Store(true)
+	err := b.ReadCloser.Close()
+	b.end()
+	return err
+}
 
 // ResponseContext links parser observations to their actual egress attempt.
 func ResponseContext(ctx context.Context, resp *http.Response) context.Context {

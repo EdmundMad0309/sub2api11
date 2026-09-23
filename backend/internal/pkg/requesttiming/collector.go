@@ -18,20 +18,22 @@ type Span struct {
 	Attempt int     `json:"attempt,omitempty"`
 }
 type Attempt struct {
-	Kind          string             `json:"kind"`
-	Parent        int                `json:"parent,omitempty"`
-	Number        int                `json:"number"`
-	AccountID     int64              `json:"account_id"`
-	ProxyID       int64              `json:"proxy_id"`
-	StartMS       float64            `json:"start_ms"`
-	EndMS         *float64           `json:"end_ms"`
-	Status        int                `json:"status"`
-	Error         string             `json:"error,omitempty"`
-	Reused        *bool              `json:"reused"`
-	RequestBytes  int64              `json:"request_bytes"`
-	ResponseBytes int64              `json:"response_bytes"`
-	BodyEOF       bool               `json:"body_eof"`
-	Events        map[string]float64 `json:"events"`
+	Terminal        string             `json:"terminal,omitempty"`
+	CleanupCanceled bool               `json:"cleanup_canceled,omitempty"`
+	Kind            string             `json:"kind"`
+	Parent          int                `json:"parent,omitempty"`
+	Number          int                `json:"number"`
+	AccountID       int64              `json:"account_id"`
+	ProxyID         int64              `json:"proxy_id"`
+	StartMS         float64            `json:"start_ms"`
+	EndMS           *float64           `json:"end_ms"`
+	Status          int                `json:"status"`
+	Error           string             `json:"error,omitempty"`
+	Reused          *bool              `json:"reused"`
+	RequestBytes    int64              `json:"request_bytes"`
+	ResponseBytes   int64              `json:"response_bytes"`
+	BodyEOF         bool               `json:"body_eof"`
+	Events          map[string]float64 `json:"events"`
 }
 type Snapshot struct {
 	Outcome           string             `json:"outcome,omitempty"`
@@ -147,6 +149,7 @@ func Output(ctx context.Context, semantic, visible bool, terminal string) {
 			}
 			if terminal != "" {
 				a.Events["terminal"] = c.offset(now)
+				a.Terminal = terminal
 			}
 			index = a.Parent - 1
 		}
