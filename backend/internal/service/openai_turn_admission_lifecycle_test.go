@@ -92,7 +92,8 @@ func TestOpenAITurnAdmissionDrainsCurrentRejectsNext(t *testing.T) {
 				requirePassthroughUpstreamWrite(t, upstream, time.Second)
 				upstream.Send(`{"type":"response.output_text.delta","delta":"started"}`)
 				readType("response.output_text.delta")
-				if change == "ticket_expiry" {
+				switch change {
+				case "ticket_expiry":
 					// Persisted ticket timestamps lose their monotonic component.
 					// Wait for the same clock/predicate as admission instead of assuming
 					// a short Sleep guarantees expiry under wall-clock adjustments.
@@ -100,7 +101,7 @@ func TestOpenAITurnAdmissionDrainsCurrentRejectsNext(t *testing.T) {
 						ticket := svc.lookupOpenAICodexTicket(a, firstModel)
 						return !ticket.valid(time.Now(), 292)
 					}, 2*time.Second, 10*time.Millisecond)
-				} else if change == "account_expiry" {
+				case "account_expiry":
 					require.Eventually(t, func() bool {
 						return !time.Now().Before(expiry)
 					}, 2*time.Second, 10*time.Millisecond)
