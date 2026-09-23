@@ -80,7 +80,7 @@ const groups = computed(() => {
   return [
     { title: t('requestTiming.inbound'), rows: [
       [label('body_read_start'), ms(e.body_read_start)], [label('body_first_wait'), ms(delta(e, 'body_read_start', 'body_first_byte'))],
-      [label('body_receive'), ms(delta(e, 'body_first_byte', 'body_received'))], [label('body_read_ms'), ms(d.body_read_ms)],
+      [label('body_receive'), ms(delta(e, 'body_first_byte', 'body_received'))], [label('body_read_ms'), ms(e.body_read_start == null ? undefined : d.body_read_ms)],
       [label('body_bytes'), bytes(d.body_bytes)], [label('body_rate'), d.body_read_ms > 0 ? `${(d.body_bytes / 1048576 / (d.body_read_ms / 1000)).toFixed(2)} MiB/s` : t('requestTiming.missing')],
       [label('body_complete'), yes(d.body_complete)]
     ] },
