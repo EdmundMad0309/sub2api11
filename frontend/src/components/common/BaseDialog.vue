@@ -12,7 +12,7 @@
         @click.self="handleClose"
       >
         <!-- Modal panel -->
-        <div ref="dialogRef" :class="['modal-content', widthClasses, { 'drawer-content': placement === 'right' }]" @click.stop>
+        <div ref="dialogRef" :class="['modal-content', widthClasses, { 'drawer-content': placement === 'right', 'modal-fullscreen': fullscreen }]" @click.stop>
           <!-- Header -->
           <div class="modal-header">
             <h3 :id="dialogId" class="modal-title">
@@ -71,6 +71,7 @@ interface Props {
   closeOnClickOutside?: boolean
   showCloseButton?: boolean
   zIndex?: number
+  fullscreen?: boolean
 }
 
 interface Emits {
@@ -83,7 +84,8 @@ const props = withDefaults(defineProps<Props>(), {
   closeOnEscape: true,
   closeOnClickOutside: false,
   showCloseButton: true,
-  zIndex: 50
+  zIndex: 50,
+  fullscreen: false
 })
 
 const emit = defineEmits<Emits>()

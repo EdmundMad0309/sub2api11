@@ -1534,6 +1534,7 @@ export default {
       testModel: 'Test model',
       testPrompt: 'Prompt: "hi"',
       pelicanTest: {
+        scheduledPreview: 'Scheduled preview',
         sourceManual: 'Manual',
         sourceScheduled: 'Scheduled',
         generatedAt: 'Generation time',
