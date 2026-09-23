@@ -1,5 +1,5 @@
 <template>
-  <BaseDialog :show="!!record" :title="t('requestTiming.title')" width="extra-wide" placement="right" @close="$emit('close')">
+  <BaseDialog :show="!!record" :title="t('requestTiming.title')" width="extra-wide" placement="right" close-on-click-outside @close="$emit('close')">
     <div v-if="record" class="space-y-5">
       <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-800">
         <div class="flex flex-wrap justify-between gap-2"><strong>{{ record.model }}</strong><span>{{ formatDateTime(record.created_at) }}</span></div>

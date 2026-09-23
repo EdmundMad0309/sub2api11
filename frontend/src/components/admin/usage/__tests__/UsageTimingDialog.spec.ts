@@ -49,5 +49,14 @@ describe('Usage timing details', () => {
     expect(reuse?.element.children[1]?.className).toContain('text-slate-600')
     wrapper.unmount()
   })
+  it('closes when the blank area beside the drawer is clicked', async () => {
+    mocks.get.mockResolvedValue({ traces: [], retention_days: 30 })
+    const wrapper = mount(UsageTimingDialog, { attachTo: document.body, props: { record: row(1) }, global: { stubs: { Icon: true } } })
+    await flushPromises()
+    const overlay = document.body.querySelector('.modal-overlay')!
+    for (const type of ['mousedown', 'mouseup', 'click']) overlay.dispatchEvent(new MouseEvent(type, { bubbles: true }))
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    wrapper.unmount()
+  })
 
 })
