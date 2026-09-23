@@ -1534,6 +1534,7 @@ export default {
       testModel: 'Test model',
       testPrompt: 'Prompt: "hi"',
       pelicanTest: {
+        historyLoadError: 'Some scheduled records could not be loaded. Available manual records are still shown.',
         dashboardHint: 'Recent automatic and manual results by account. Open a card to view the animation.',
         scheduledPreview: 'Scheduled preview',
         sourceManual: 'Manual',

@@ -38,7 +38,7 @@ jobs:
         run: go test -tags=integration ./internal/repository -run TestPelicanSchedulePersistenceLeaseAndRetention -count=1
       - name: Frontend regression tests
         working-directory: frontend
-        run: pnpm test:run src/components/admin/account/__tests__/IQTestModal.spec.ts src/components/admin/account/__tests__/ScheduledTestsPanel.pelican.spec.ts src/i18n/__tests__/localeKeyCompleteness.spec.ts
+        run: pnpm test:run src/components/admin/account/__tests__/PelicanRecordsDashboard.spec.ts src/components/admin/account/__tests__/IQTestModal.spec.ts src/components/admin/account/__tests__/ScheduledTestsPanel.pelican.spec.ts src/i18n/__tests__/localeKeyCompleteness.spec.ts
       - name: Frontend production build
         working-directory: frontend
         run: pnpm build
