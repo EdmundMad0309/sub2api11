@@ -98,6 +98,7 @@ export default {
     "normalClose": "Closed normally after completion",
     "legacyCancel": "Canceled (legacy data lacks cleanup cause)",
     "noTransportError": "No transport error recorded",
-    "attemptGuide": "Egress #1 and physical HTTP #1.1 are layers of the same request, not a retry. HTTP status and transport completion are separate. Legacy cancellation may be caused by closing after completion and does not alone establish failure."
+    "attemptGuide": "Egress #1 and physical HTTP #1.1 are layers of the same request, not a retry. HTTP status and transport completion are separate. Legacy cancellation may be caused by closing after completion and does not alone establish failure.",
+    "readTooBrief": "Read <1ms; rate not estimated"
   }
 }
