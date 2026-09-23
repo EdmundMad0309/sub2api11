@@ -70,6 +70,12 @@ export default {
     "stream_transfer": "Read/forward after response headers",
     "request_bytes": "Outbound Content-Length",
     "response_bytes": "Upstream bytes read",
-    "body_eof": "Upstream EOF observed"
-  }
+    "body_eof": "Upstream EOF observed",
+    "outcome": "Forward outcome",
+    "client_disconnect": "Client disconnect detected"
+  },
+  "httpAttempt": "Physical HTTP attempt",
+  "parent": "Parent egress",
+  "success": "Forward succeeded",
+  "client_disconnected": "Client disconnected"
 }

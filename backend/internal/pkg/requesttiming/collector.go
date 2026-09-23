@@ -18,6 +18,8 @@ type Span struct {
 	Attempt int     `json:"attempt,omitempty"`
 }
 type Attempt struct {
+	Kind          string             `json:"kind"`
+	Parent        int                `json:"parent,omitempty"`
 	Number        int                `json:"number"`
 	AccountID     int64              `json:"account_id"`
 	ProxyID       int64              `json:"proxy_id"`
@@ -32,6 +34,8 @@ type Attempt struct {
 	Events        map[string]float64 `json:"events"`
 }
 type Snapshot struct {
+	Outcome           string             `json:"outcome,omitempty"`
+	ClientDisconnect  bool               `json:"client_disconnect"`
 	Version           int                `json:"version"`
 	TraceID           string             `json:"trace_id"`
 	StartedAt         time.Time          `json:"started_at"`
@@ -128,6 +132,22 @@ func Output(ctx context.Context, semantic, visible bool, terminal string) {
 		return
 	}
 	now := time.Now()
+	if tr, ok := ctx.Value(attemptKey{}).(*Trace); ok && tr.c == c {
+		a := &c.data.Attempts[tr.index]
+		if semantic {
+			if _, exists := a.Events["first_semantic"]; !exists {
+				a.Events["first_semantic"] = c.offset(now)
+			}
+		}
+		if visible {
+			if _, exists := a.Events["first_visible"]; !exists {
+				a.Events["first_visible"] = c.offset(now)
+			}
+		}
+		if terminal != "" {
+			a.Events["terminal"] = c.offset(now)
+		}
+	}
 	if semantic {
 		c.event("first_semantic", now)
 	}
@@ -204,5 +224,18 @@ func (c *Collector) Finish(status int, canceled bool) {
 	c.mu.Unlock()
 	for _, fn := range callbacks {
 		fn(d)
+	}
+}
+
+func Outcome(ctx context.Context, result string, disconnected bool) {
+	c := From(ctx)
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.finished {
+		c.data.Outcome = result
+		c.data.ClientDisconnect = disconnected
 	}
 }

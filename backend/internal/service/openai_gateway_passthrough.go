@@ -1959,6 +1959,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithImage(
 	imageCounter := newOpenAIImageOutputCounter()
 	var firstTokenMs *int
 	responseID := ""
+	ctx = requesttiming.ResponseContext(ctx, resp)
 	ttftMode := s.openAITTFTMode(ctx)
 	requesttiming.Mode(ctx, ttftMode)
 	clientDisconnected := false

@@ -34,7 +34,7 @@
           </div>
         </section>
         <section v-for="attempt in trace.attempts" :key="attempt.number" class="rounded-xl border border-gray-200 p-4 dark:border-dark-600">
-          <h4 class="font-semibold">{{ t('requestTiming.attempt') }} #{{ attempt.number }} · {{ t('requestTiming.account') }} #{{ attempt.account_id }} · {{ attempt.proxy_id > 0 ? `${t('requestTiming.proxy')} #${attempt.proxy_id}` : t('requestTiming.direct') }}</h4>
+          <h4 class="font-semibold">{{ t(attempt.kind === 'http' ? 'requestTiming.httpAttempt' : 'requestTiming.attempt') }} #{{ attempt.number }}<span v-if="attempt.parent"> ({{ t('requestTiming.parent') }} #{{ attempt.parent }})</span> · {{ t('requestTiming.account') }} #{{ attempt.account_id }} · {{ attempt.proxy_id > 0 ? `${t('requestTiming.proxy')} #${attempt.proxy_id}` : t('requestTiming.direct') }}</h4>
           <div class="mt-3 grid gap-x-8 gap-y-3 text-sm md:grid-cols-2">
             <div v-for="row in attemptRows(attempt)" :key="row[0]" class="flex justify-between gap-4"><span class="text-gray-500">{{ row[0] }}</span><span class="tabular-nums">{{ row[1] }}</span></div>
           </div>
@@ -84,8 +84,8 @@ const groups = computed(() => {
     ] },
     { title: t('requestTiming.internal'), rows: ['api_key_auth', 'model_allowlist', 'composite_routing', 'handler_body_read', 'security_audit', 'billing_check', 'user_queue', 'account_selection', 'account_queue', 'upstream_credentials', 'build_upstream_request', 'handler'].map(name => [label(name), ms(duration(name))]) },
     { title: t('requestTiming.result'), rows: [
-      [label('status'), String(d.status)], [label('attempts'), String(d.attempts.length)], [label('terminal'), d.terminal ? t(`requestTiming.${d.terminal}`) : t('requestTiming.missing')],
-      [label('canceled'), yes(d.canceled)], [label('downstream_error'), yes(d.downstream_error)], [label('downstream_bytes'), bytes(d.downstream_bytes)],
+      [label('status'), String(d.status)], [label('attempts'), String(d.attempts.filter(a => a.kind !== 'http').length)], [label('terminal'), d.terminal ? t(`requestTiming.${d.terminal}`) : t('requestTiming.missing')],
+      [label('outcome'), d.outcome ? t(`requestTiming.${d.outcome}`) : t('requestTiming.missing')], [label('client_disconnect'), yes(d.client_disconnect)], [label('canceled'), yes(d.canceled)], [label('downstream_error'), yes(d.downstream_error)], [label('downstream_bytes'), bytes(d.downstream_bytes)],
       [label('downstream_write_ms'), ms(d.downstream_write_ms)], [label('ttft_mode'), d.ttft_mode || t('requestTiming.missing')]
     ] }
   ]
@@ -99,6 +99,7 @@ function attemptRows(a: TimingAttempt): string[][] {
     [label('reused'), yes(a.reused)], [label('connection'), ms(delta(e, 'connection_start', 'connection_ready'))],
     ...['dns', 'tcp', 'tls'].map(name => [name.toUpperCase(), ms(delta(e, `${name}_start`, `${name}_end`))]),
     [label('request_write'), ms(delta(e, 'connection_ready', 'request_written'))], [label('wait_first_byte'), ms(delta(e, 'request_written', 'first_byte'))],
+    [label('first_semantic'), ms(e.first_semantic)], [label('first_visible'), ms(e.first_visible)],
     [label('response_headers'), ms(e.response_headers == null ? undefined : e.response_headers - a.start_ms)],
     [label('stream_transfer'), ms(a.end_ms == null || e.response_headers == null ? undefined : a.end_ms - e.response_headers)],
     [label('request_bytes'), bytes(a.request_bytes)], [label('response_bytes'), bytes(a.response_bytes)], [label('body_eof'), yes(a.body_eof)]

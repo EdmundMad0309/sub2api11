@@ -19,6 +19,21 @@ type Trace struct {
 }
 
 func StartAttempt(req *http.Request, accountID, proxyID int64) (*http.Request, *Trace) {
+	return startAttempt(req, accountID, proxyID, "egress", 0)
+}
+
+// StartTransport separates physical Client.Do calls, including the safe TLS
+// retry, from the enclosing plugin/proxy egress attempt.
+func StartTransport(req *http.Request) (*http.Request, *Trace) {
+	parent, _ := req.Context().Value(attemptKey{}).(*Trace)
+	if parent == nil {
+		return req, nil
+	}
+	var accountID, proxyID int64
+	parent.update(func(a *Attempt) { accountID = a.AccountID; proxyID = a.ProxyID })
+	return startAttempt(req, accountID, proxyID, "http", parent.index+1)
+}
+func startAttempt(req *http.Request, accountID, proxyID int64, kind string, parent int) (*http.Request, *Trace) {
 	c := From(req.Context())
 	if c == nil {
 		return req, nil
@@ -30,7 +45,7 @@ func StartAttempt(req *http.Request, accountID, proxyID int64) (*http.Request, *
 		return req, nil
 	}
 	idx := len(c.data.Attempts)
-	c.data.Attempts = append(c.data.Attempts, Attempt{Number: idx + 1, AccountID: accountID, ProxyID: proxyID, StartMS: c.offset(time.Now()), RequestBytes: req.ContentLength, Events: map[string]float64{}})
+	c.data.Attempts = append(c.data.Attempts, Attempt{Kind: kind, Parent: parent, Number: idx + 1, AccountID: accountID, ProxyID: proxyID, StartMS: c.offset(time.Now()), RequestBytes: req.ContentLength, Events: map[string]float64{}})
 	c.mu.Unlock()
 	t := &Trace{c: c, index: idx}
 	ctx := context.WithValue(req.Context(), attemptKey{}, t)
@@ -126,3 +141,13 @@ func (b *responseBody) end() {
 	b.once.Do(func() { b.trace.update(func(a *Attempt) { v := b.trace.c.offset(time.Now()); a.EndMS = &v }) })
 }
 func (b *responseBody) Close() error { err := b.ReadCloser.Close(); b.end(); return err }
+
+// ResponseContext links parser observations to their actual egress attempt.
+func ResponseContext(ctx context.Context, resp *http.Response) context.Context {
+	if resp != nil {
+		if body, ok := resp.Body.(*responseBody); ok {
+			return context.WithValue(ctx, attemptKey{}, body.trace)
+		}
+	}
+	return ctx
+}

@@ -120,6 +120,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		maxLineSize = s.cfg.Gateway.MaxLineSize
 	}
 	var firstTokenMs *int
+	ctx = requesttiming.ResponseContext(ctx, resp)
 	ttftMode := s.openAITTFTMode(ctx)
 	requesttiming.Mode(ctx, ttftMode)
 	firstOutputProgressObserved := false

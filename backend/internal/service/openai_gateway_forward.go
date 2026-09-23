@@ -20,7 +20,18 @@ import (
 )
 
 // Forward forwards request to OpenAI API
-func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
+func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (result *OpenAIForwardResult, resultErr error) {
+	defer func() {
+		outcome := "success"
+		if resultErr != nil {
+			outcome = "failed"
+		}
+		disconnected := result != nil && result.ClientDisconnect
+		if disconnected {
+			outcome = "client_disconnected"
+		}
+		requesttiming.Outcome(ctx, outcome, disconnected)
+	}()
 	defer requesttiming.Observe(ctx, "forward_attempt")()
 	latest, admissionErr := s.admitOpenAITurn(ctx, c, account, extractOpenAICodexTicketModel(body))
 	if admissionErr != nil {

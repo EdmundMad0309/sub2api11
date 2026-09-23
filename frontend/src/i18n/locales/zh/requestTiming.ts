@@ -70,6 +70,12 @@ export default {
     "stream_transfer": "响应头后读取与转发",
     "request_bytes": "出站 Content-Length",
     "response_bytes": "上游读取大小",
-    "body_eof": "读到上游 EOF"
-  }
+    "body_eof": "读到上游 EOF",
+    "outcome": "转发结果",
+    "client_disconnect": "转发检测到客户端断开"
+  },
+  "httpAttempt": "实际 HTTP 尝试",
+  "parent": "所属出口尝试",
+  "success": "转发成功",
+  "client_disconnected": "客户端已断开"
 }
