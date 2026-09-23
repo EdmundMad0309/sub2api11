@@ -32,6 +32,7 @@
         </div>
         <p class="text-xs leading-relaxed text-gray-500 dark:text-gray-400">{{ t('requestTiming.scope') }}</p>
         <p class="text-sm"><strong>TPS {{ formatUsageOutputTps(record) ?? '—' }}</strong> · {{ t('requestTiming.tpsNote') }}</p>
+        <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('requestTiming.health.attemptGuide') }}</p>
         <p v-if="trace.truncated" class="text-amber-600">{{ t('requestTiming.truncated') }}</p>
         <div class="grid gap-4 lg:grid-cols-3">
           <section v-for="group in groups" :key="group.title" class="rounded-xl border border-gray-200 p-4 dark:border-dark-600">
@@ -48,7 +49,7 @@
           </div>
         </section>
         <section v-for="attempt in trace.attempts" :key="attempt.number" class="rounded-xl border border-gray-200 p-4 dark:border-dark-600">
-          <h4 class="font-semibold">{{ t(attempt.kind === 'http' ? 'requestTiming.httpAttempt' : 'requestTiming.attempt') }} #{{ attempt.number }}<span v-if="attempt.parent"> ({{ t('requestTiming.parent') }} #{{ attempt.parent }})</span> · {{ t('requestTiming.account') }} #{{ attempt.account_id }} · {{ attempt.proxy_id > 0 ? `${t('requestTiming.proxy')} #${attempt.proxy_id}` : t('requestTiming.direct') }}</h4>
+          <h4 class="font-semibold">{{ attemptTitle(attempt) }} · {{ t('requestTiming.account') }} #{{ attempt.account_id }} · {{ attempt.proxy_id > 0 ? `${t('requestTiming.proxy')} #${attempt.proxy_id}` : t('requestTiming.direct') }}</h4>
           <div class="mt-3 grid gap-x-8 gap-y-3 text-sm md:grid-cols-2">
             <div v-for="row in attemptRows(attempt)" :key="row.name" class="flex justify-between gap-4"><span class="text-gray-500">{{ row.name }}</span><span class="text-right font-medium tabular-nums" :class="TIMING_TEXT[row.health]">{{ row.value }}<span v-if="row.health !== 'neutral'" class="mt-0.5 block text-[10px] font-normal">{{ healthLabel(row.health) }}</span></span></div>
           </div>
@@ -131,10 +132,19 @@ const groups = computed(() => {
 })
 const orderedSpans = computed(() => [...(trace.value?.spans ?? [])].sort((a, b) => a.start_ms - b.start_ms))
 const bar = (span: TimingSpan) => { const total = Math.max(trace.value?.total_ms ?? 1, 1); return { marginLeft: `${Math.min(100, span.start_ms / total * 100)}%`, width: `${Math.max(0.2, (span.end_ms - span.start_ms) / total * 100)}%`, maxWidth: '100%' } }
+function attemptTitle(a: TimingAttempt): string {
+  const attempts = trace.value?.attempts ?? []
+  const egress = attempts.filter(item => item.kind !== 'http')
+  if (a.kind !== 'http') return `${t('requestTiming.attempt')} #${egress.findIndex(item => item.number === a.number) + 1}`
+  const parent = egress.findIndex(item => item.number === a.parent) + 1
+  const child = attempts.filter(item => item.kind === 'http' && item.parent === a.parent).findIndex(item => item.number === a.number) + 1
+  return `${t('requestTiming.httpAttempt')} #${parent}.${child}`
+}
 function attemptRows(a: TimingAttempt): DetailRow[] {
   const e = a.events
   return [
-    timed('attempt_total', a.end_ms == null ? undefined : a.end_ms - a.start_ms, 'neutral'), row('status', a.error ? t(`requestTiming.${a.error}`) : String(a.status), a.error ? 'critical' : statusHealth(a.status)),
+    timed('attempt_total', a.end_ms == null ? undefined : a.end_ms - a.start_ms, 'neutral'), row('status', a.status > 0 ? String(a.status) : t('requestTiming.missing'), statusHealth(a.status)),
+    row('transport_result', a.cleanup_canceled ? t('requestTiming.health.normalClose') : a.error === 'canceled' && !a.terminal ? t('requestTiming.health.legacyCancel') : a.error ? t(`requestTiming.${a.error}`) : t('requestTiming.health.noTransportError'), a.error ? (a.error === 'canceled' ? 'warn' : 'critical') : a.cleanup_canceled ? 'good' : 'neutral'),
     // A new connection and closing after the terminal event without EOF are normal.
     row('reused', yes(a.reused), a.reused === true ? 'good' : 'neutral'), timed('connection', delta(e, 'connection_start', 'connection_ready')),
     ...['dns', 'tcp', 'tls'].map(name => ({ name: name.toUpperCase(), value: ms(delta(e, `${name}_start`, `${name}_end`)), health: timingHealth(delta(e, `${name}_start`, `${name}_end`), 'stage') })),

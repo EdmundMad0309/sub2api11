@@ -72,7 +72,8 @@ export default {
     "response_bytes": "上游读取大小",
     "body_eof": "读到上游 EOF",
     "outcome": "转发结果",
-    "client_disconnect": "转发检测到客户端断开"
+    "client_disconnect": "转发检测到客户端断开",
+    "transport_result": "传输结束情况"
   },
   "httpAttempt": "实际 HTTP 尝试",
   "parent": "所属出口尝试",
@@ -93,6 +94,10 @@ export default {
     "interrupted": "请求中途取消、断开或未完整结束，请结合请求结果查看。",
     "insufficient": "缺少首字观测，暂时无法评价响应速度。",
     "firstGood": "约 {time} 开始输出，首字等待在参考正常范围内。",
-    "firstSlow": "约 {time} 才开始输出，等待偏长。可对照下方读体、排队和上游等待定位。"
+    "firstSlow": "约 {time} 才开始输出，等待偏长。可对照下方读体、排队和上游等待定位。",
+    "normalClose": "完成后正常关闭",
+    "legacyCancel": "已取消（旧数据未区分清理原因）",
+    "noTransportError": "未记录传输错误",
+    "attemptGuide": "出口尝试 #1 与实际 HTTP #1.1 是同一次请求的不同层级，不代表重试。HTTP 状态与传输结束情况分别展示；旧数据中的取消可能来自完成后的关闭，不能仅凭它判定请求失败。"
   }
 }

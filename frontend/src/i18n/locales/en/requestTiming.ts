@@ -72,7 +72,8 @@ export default {
     "response_bytes": "Upstream bytes read",
     "body_eof": "Upstream EOF observed",
     "outcome": "Forward outcome",
-    "client_disconnect": "Client disconnect detected"
+    "client_disconnect": "Client disconnect detected",
+    "transport_result": "Transport completion"
   },
   "httpAttempt": "Physical HTTP attempt",
   "parent": "Parent egress",
@@ -93,6 +94,10 @@ export default {
     "interrupted": "The request was canceled, disconnected or incomplete. Check the result below.",
     "insufficient": "First-output data is missing; response speed cannot be assessed.",
     "firstGood": "Output began after about {time}, within the reference normal range.",
-    "firstSlow": "Output began after about {time}, a longer wait. Compare body reads, queueing and upstream waits below."
+    "firstSlow": "Output began after about {time}, a longer wait. Compare body reads, queueing and upstream waits below.",
+    "normalClose": "Closed normally after completion",
+    "legacyCancel": "Canceled (legacy data lacks cleanup cause)",
+    "noTransportError": "No transport error recorded",
+    "attemptGuide": "Egress #1 and physical HTTP #1.1 are layers of the same request, not a retry. HTTP status and transport completion are separate. Legacy cancellation may be caused by closing after completion and does not alone establish failure."
   }
 }

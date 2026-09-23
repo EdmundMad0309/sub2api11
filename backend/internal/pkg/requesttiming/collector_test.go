@@ -120,3 +120,45 @@ func TestHeartbeatFlushIsNotOutput(t *testing.T) {
 		}
 	})
 }
+
+type cancelOnCloseFixture struct {
+	started chan struct{}
+	closed  chan struct{}
+}
+
+func (b *cancelOnCloseFixture) Read([]byte) (int, error) {
+	close(b.started)
+	<-b.closed
+	return 0, context.Canceled
+}
+func (b *cancelOnCloseFixture) Close() error { close(b.closed); return nil }
+func TestCompletedStreamCleanupDoesNotBecomeCancellation(t *testing.T) {
+	for _, terminal := range []string{"completed", "failed", ""} {
+		t.Run(terminal, func(t *testing.T) {
+			c := New(time.Now(), 0)
+			ctx := With(context.Background(), c)
+			req, _ := http.NewRequestWithContext(ctx, "POST", "https://example.invalid", nil)
+			req, trace := StartAttempt(req, 1, 0)
+			fixture := &cancelOnCloseFixture{started: make(chan struct{}), closed: make(chan struct{})}
+			resp := &http.Response{StatusCode: 200, Body: fixture, Request: req}
+			trace.Response(resp, nil)
+			Output(ResponseContext(ctx, resp), true, true, terminal)
+			done := make(chan struct{})
+			go func() { _, _ = resp.Body.Read(make([]byte, 1)); close(done) }()
+			<-fixture.started
+			_ = resp.Body.Close()
+			<-done
+			c.Finish(200, false)
+			c.WhenFinished(func(s Snapshot) {
+				a := s.Attempts[0]
+				if terminal == "completed" {
+					if a.Error != "" || !a.CleanupCanceled {
+						t.Fatalf("cleanup misclassified: %+v", a)
+					}
+				} else if a.Error != "canceled" || a.CleanupCanceled {
+					t.Fatalf("real cancellation hidden: %+v", a)
+				}
+			})
+		})
+	}
+}
