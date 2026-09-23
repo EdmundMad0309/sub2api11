@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	"io"
 	"net/http"
 	"sort"
@@ -628,6 +629,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	body []byte,
 	token string,
 ) (*http.Request, error) {
+	defer requesttiming.Observe(ctx, "build_upstream_request")()
 	targetURL := openaiPlatformAPIURL
 	switch account.Type {
 	case AccountTypeOAuth:
@@ -1958,6 +1960,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithImage(
 	var firstTokenMs *int
 	responseID := ""
 	ttftMode := s.openAITTFTMode(ctx)
+	requesttiming.Mode(ctx, ttftMode)
 	clientDisconnected := false
 	sawDone := false
 	sawTerminalEvent := false
@@ -2289,6 +2292,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithImage(
 				openAIResponsesCompletedEventIsEmpty(dataBytes, usage) {
 				return resultWithUsage(), newOpenAIResponsesEmptyCompletedFailoverError(c, account, upstreamRequestID)
 			}
+			requesttiming.Output(ctx, openAIStreamDataStartsSemanticTTFT(trimmedData, eventType), openAIStreamDataStartsVisibleOutput(trimmedData, eventType), timingTerminal(eventType))
 			if firstTokenMs == nil && openAIStreamDataStartsTTFT(trimmedData, eventType, forceFlushFailedEvent, ttftMode) {
 				ms := int(time.Since(startTime).Milliseconds())
 				firstTokenMs = &ms
