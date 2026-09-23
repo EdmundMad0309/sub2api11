@@ -77,5 +77,6 @@ export default {
   "httpAttempt": "实际 HTTP 尝试",
   "parent": "所属出口尝试",
   "success": "转发成功",
-  "client_disconnected": "客户端已断开"
+  "client_disconnected": "客户端已断开",
+  "tpsNote": "TPS 按现有使用记录估算；推理 Token、上游缓冲或首字后窗口很短时可能偏高，不代表模型实际生成速度。"
 }

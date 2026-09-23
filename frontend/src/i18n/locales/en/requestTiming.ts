@@ -77,5 +77,6 @@ export default {
   "httpAttempt": "Physical HTTP attempt",
   "parent": "Parent egress",
   "success": "Forward succeeded",
-  "client_disconnected": "Client disconnected"
+  "client_disconnected": "Client disconnected",
+  "tpsNote": "TPS is estimated from the usage record. Reasoning tokens, upstream buffering or a short post-first-token window may inflate it; it is not a direct measurement of model generation speed."
 }

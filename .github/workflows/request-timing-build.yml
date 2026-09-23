@@ -32,7 +32,7 @@ jobs:
         run: go test -tags=unit ./internal/handler/... ./internal/service ./internal/repository ./internal/server/... -run '^$'
       - name: Frontend regression tests
         working-directory: frontend
-        run: pnpm test:run src/components/admin/usage/__tests__/UsageTable.spec.ts src/components/admin/usage/__tests__/UsageTimingDialog.spec.ts
+        run: pnpm test:run src/components/admin/usage/__tests__/UsageTable.spec.ts src/components/admin/usage/__tests__/UsageTimingDialog.spec.ts src/utils/__tests__/usageTps.spec.ts src/utils/__tests__/latencyHealth.spec.ts
       - name: Frontend production build
         working-directory: frontend
         run: pnpm build
@@ -50,5 +50,7 @@ jobs:
       - uses: actions/upload-artifact@v6
         with:
           name: request-timing-linux-amd64
-          path: artifacts/
+          path: |
+            artifacts/
+            frontend/dist/
           retention-days: 14

@@ -1,5 +1,5 @@
 <template>
-  <BaseDialog :show="!!record" :title="t('requestTiming.title')" width="extra-wide" @close="$emit('close')">
+  <BaseDialog :show="!!record" :title="t('requestTiming.title')" width="extra-wide" placement="right" @close="$emit('close')">
     <div v-if="record" class="space-y-5">
       <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-800">
         <div class="flex flex-wrap justify-between gap-2"><strong>{{ record.model }}</strong><span>{{ formatDateTime(record.created_at) }}</span></div>
@@ -18,6 +18,7 @@
           <select v-model="selected" class="input mt-2 w-full"><option v-for="(item, i) in traces" :key="item.trace_id" :value="i">{{ formatDateTime(item.started_at) }} · {{ ms(item.total_ms) }}</option></select>
         </label>
         <p class="text-sm text-gray-500">{{ t('requestTiming.scope') }}</p>
+        <p class="text-sm"><strong>TPS {{ formatUsageOutputTps(record) ?? '—' }}</strong> · {{ t('requestTiming.tpsNote') }}</p>
         <p v-if="trace.truncated" class="text-amber-600">{{ t('requestTiming.truncated') }}</p>
         <div class="grid gap-4 lg:grid-cols-3">
           <section v-for="group in groups" :key="group.title" class="rounded-xl border border-gray-200 p-4 dark:border-dark-600">
@@ -50,6 +51,7 @@ import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import type { AdminUsageLog } from '@/types'
 import { formatDateTime } from '@/utils/format'
+import { formatUsageOutputTps } from '@/utils/usageTps'
 import { getUsageTiming, type RequestTiming, type TimingAttempt, type TimingSpan } from '@/api/admin/usageTiming'
 const props = defineProps<{ record: AdminUsageLog | null }>()
 defineEmits<{ close: [] }>()
