@@ -265,8 +265,8 @@ type UpdateSettingsRequest struct {
 	OpenAICodexTicketHarvestProxyURL       string    `json:"openai_codex_ticket_harvest_proxy_url"`
 	OpenAICodexTicketUseSavedStaticProxy   bool      `json:"openai_codex_ticket_use_saved_static_proxy"`
 	OpenAICodexTicketModels                *[]string `json:"openai_codex_ticket_models"`
-	ClaudeCodeClientVersion                *string `json:"claude_code_client_version"`
-	ClaudeCodeVersionAutoSyncEnabled       *bool   `json:"claude_code_version_auto_sync_enabled"`
+	ClaudeCodeClientVersion                *string   `json:"claude_code_client_version"`
+	ClaudeCodeVersionAutoSyncEnabled       *bool     `json:"claude_code_version_auto_sync_enabled"`
 
 	// codex_cli_only 加固（global-only）
 	MinCodexVersion                      string `json:"min_codex_version"`
