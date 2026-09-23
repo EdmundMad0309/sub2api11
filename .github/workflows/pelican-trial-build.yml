@@ -35,7 +35,7 @@ jobs:
         run: go test -race ./internal/service ./internal/repository ./internal/handler/admin -run 'TestPelican|TestScheduled' -count=1
       - name: PostgreSQL schedule and cleanup integration
         working-directory: backend
-        run: go test -tags=integration ./internal/repository -run TestPelicanSchedulePersistenceLeaseAndRetention -count=1
+        run: go test -tags=integration ./internal/repository -run 'TestPelicanSchedulePersistenceLeaseAndRetention|TestPelicanHistoryReturnsEveryRetainedOutputAcrossAccounts' -count=1
       - name: Frontend regression tests
         working-directory: frontend
         run: pnpm test:run src/components/admin/account/__tests__/PelicanRecordsDashboard.spec.ts src/components/admin/account/__tests__/IQTestModal.spec.ts src/components/admin/account/__tests__/ScheduledTestsPanel.pelican.spec.ts src/i18n/__tests__/localeKeyCompleteness.spec.ts
