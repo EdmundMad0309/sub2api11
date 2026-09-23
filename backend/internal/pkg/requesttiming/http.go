@@ -145,6 +145,11 @@ func (b *responseBody) Close() error { err := b.ReadCloser.Close(); b.end(); ret
 // ResponseContext links parser observations to their actual egress attempt.
 func ResponseContext(ctx context.Context, resp *http.Response) context.Context {
 	if resp != nil {
+		if resp.Request != nil {
+			if tr, ok := resp.Request.Context().Value(attemptKey{}).(*Trace); ok {
+				return context.WithValue(ctx, attemptKey{}, tr)
+			}
+		}
 		if body, ok := resp.Body.(*responseBody); ok {
 			return context.WithValue(ctx, attemptKey{}, body.trace)
 		}

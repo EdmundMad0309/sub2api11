@@ -133,19 +133,22 @@ func Output(ctx context.Context, semantic, visible bool, terminal string) {
 	}
 	now := time.Now()
 	if tr, ok := ctx.Value(attemptKey{}).(*Trace); ok && tr.c == c {
-		a := &c.data.Attempts[tr.index]
-		if semantic {
-			if _, exists := a.Events["first_semantic"]; !exists {
-				a.Events["first_semantic"] = c.offset(now)
+		for index := tr.index; index >= 0; {
+			a := &c.data.Attempts[index]
+			if semantic {
+				if _, exists := a.Events["first_semantic"]; !exists {
+					a.Events["first_semantic"] = c.offset(now)
+				}
 			}
-		}
-		if visible {
-			if _, exists := a.Events["first_visible"]; !exists {
-				a.Events["first_visible"] = c.offset(now)
+			if visible {
+				if _, exists := a.Events["first_visible"]; !exists {
+					a.Events["first_visible"] = c.offset(now)
+				}
 			}
-		}
-		if terminal != "" {
-			a.Events["terminal"] = c.offset(now)
+			if terminal != "" {
+				a.Events["terminal"] = c.offset(now)
+			}
+			index = a.Parent - 1
 		}
 	}
 	if semantic {
