@@ -3752,10 +3752,10 @@ func TestGPT6SolLunaCatalogKeepsAuthoritativeCapabilities(t *testing.T) {
 		require.Equal(t, float64(900000), models[0]["max_context_window"])
 		require.Equal(t, []any{map[string]any{"id": "ultrafast"}}, models[0]["service_tiers"])
 		require.Equal(t, false, models[0]["supports_search_tool"])
+		require.Contains(t, models[0], "apply_patch_tool_type")
 		require.Nil(t, models[0]["apply_patch_tool_type"])
 	}
 }
-
 // Scenario: 非 OpenAI GPT 模型的 Codex 提示词不声称自己是 GPT。
 // Antigravity(Google) 对「Codex 提示词 + GPT-5 身份」直接回 429 RESOURCE_EXHAUSTED。
 func TestBuildCodexModelsManifestStripsGPTIdentityForNonGPTModels(t *testing.T) {
