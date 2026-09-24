@@ -145,7 +145,8 @@ func TestLargeMultilineCustomPatchTransportRoundTrip(t *testing.T) {
 			source["input"] = []any{message("user", "Apply the patch"), call, object{"type": "custom_tool_call_output", "call_id": "call_large_patch", "output": "patch accepted"}}
 			replayed, _ := mustPrepare(t, source, "patch-account/key", cache)
 			items, _ := replayed["input"].([]any)
-			if !reflect.DeepEqual(items[len(items)-2], native) || items[len(items)-1].(object)["output"] != "patch accepted" {
+			last, _ := items[len(items)-1].(object)
+			if !reflect.DeepEqual(items[len(items)-2], native) || last["output"] != "patch accepted" {
 				t.Fatal("tool-result replay did not preserve the original transport and client result")
 			}
 		})

@@ -34,7 +34,7 @@ func TestTransportEnvelopeRepairsOnlyIllegalEscapes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	args := got["arguments"].(object)
+	args, _ := got["arguments"].(object)
 	// The original valid \f escape retains its JSON meaning; guessing paths would alter arguments.
 	if args["pattern"] != `\d+\s` || args["path"] != "C:\\Projects\file" || args["line"] != "a\nb" || args["literal"] != `\n` {
 		t.Fatalf("escape repair changed valid content: %#v", args)
