@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,21 @@ import (
 )
 
 var excelBPSReplay basispoints.ReplayCache
+
+func (s *OpenAIGatewayService) excelBPSImageRelay() (*basispoints.ImageRelay, error) {
+	s.excelBPSImagesOnce.Do(func() {
+		if s.cfg != nil && s.cfg.Gateway.ExcelBPSImageBaseURL != "" {
+			s.excelBPSImages, s.excelBPSImagesErr = basispoints.NewImageRelay(s.cfg.Gateway.ExcelBPSImageBaseURL)
+		}
+	})
+	return s.excelBPSImages, s.excelBPSImagesErr
+}
+
+// ServeExcelBPSImage allows the upstream to retrieve an unguessable temporary URL.
+func (s *OpenAIGatewayService) ServeExcelBPSImage(c *gin.Context) {
+	relay, _ := s.excelBPSImageRelay()
+	relay.ServeHTTP(c.Writer, c.Request)
+}
 
 func excelBPSAccountID(account *Account, accessToken string) string {
 	if accountID := strings.TrimSpace(account.GetChatGPTAccountID()); accountID != "" {
@@ -99,6 +115,17 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		}
 	}
 	scope := fmt.Sprintf("account:%d/key:%d/thread:%s", account.ID, getAPIKeyIDFromContext(c), identity)
+	relay, err := s.excelBPSImageRelay()
+	if err != nil {
+		return fail(503, "basispoints_image_relay_unavailable", err.Error())
+	}
+	body, err = relay.Rewrite(body, scope)
+	if err != nil {
+		if errors.Is(err, basispoints.ErrImageRelayFull) {
+			return fail(503, "basispoints_image_relay_full", err.Error())
+		}
+		return fail(400, "basispoints_request_invalid", err.Error())
+	}
 	upstreamBody, bridge, err := basispoints.Prepare(body, scope, &excelBPSReplay)
 	if err != nil {
 		return fail(400, "basispoints_request_invalid", err.Error())
@@ -244,6 +271,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 
 var excelBPSBearerPattern = regexp.MustCompile(`(?i)\bBearer\s+[^\s"',;<>]+`)
 var excelBPSURLCredentialsPattern = regexp.MustCompile(`(https?://)[^/\s@]+@`)
+var excelBPSImageCapabilityPattern = regexp.MustCompile(`/api/bps-images/[A-Za-z0-9_-]+`)
 
 func excelBPSSanitizeErrorBody(raw, token string, account *Account) string {
 	if !json.Valid([]byte(raw)) {
@@ -264,6 +292,7 @@ func excelBPSSanitizeErrorBody(raw, token string, account *Account) string {
 		}
 		clean = excelBPSBearerPattern.ReplaceAllString(clean, "Bearer [redacted]")
 		clean = excelBPSURLCredentialsPattern.ReplaceAllString(clean, "${1}[redacted]@")
+		clean = excelBPSImageCapabilityPattern.ReplaceAllString(clean, "/api/bps-images/[redacted]")
 		clean = sanitizeUpstreamErrorMessage(clean)
 		fields[key] = truncateString(logredact.RedactText(clean, "authorization", "api_key", "apikey", "token", "secret", "key", "cookie", "ticket", "recovery_ticket"), 2048)
 	}
