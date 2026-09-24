@@ -51,8 +51,15 @@ func newExcelBPSRequest(ctx context.Context, body []byte, token, accountID strin
 // only the selected account's bearer and ChatGPT account ID belong on this host.
 func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Context, account *Account, body []byte, start time.Time) (*OpenAIForwardResult, error) {
 	fail := func(status int, code, message string) (*OpenAIForwardResult, error) {
+		// A compact keepalive may already have committed SSE headers. Otherwise
+		// finish a single JSON response so the handler cannot append another error.
+		committed := StopOpenAICompactSSEKeepaliveCommitted(c)
 		MarkResponseCommitted(c)
-		c.JSON(status, gin.H{"error": gin.H{"type": "invalid_request_error", "code": code, "message": message}})
+		if committed {
+			writeOpenAICompactSSEFailureMessage(c, status, code, message)
+		} else {
+			c.JSON(status, gin.H{"error": gin.H{"type": "invalid_request_error", "code": code, "message": message}})
+		}
 		return nil, fmt.Errorf("excel BPS: %s", code)
 	}
 	originalModel := gjson.GetBytes(body, "model").String()
@@ -124,13 +131,28 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
-		message, detail, requestID := excelBPSErrorDiagnostics(raw, resp.Header.Get("x-request-id"), token, account)
-		setOpsUpstreamError(c, resp.StatusCode, message, detail)
+		// Preserve the original rejection for Ops without exposing it to clients.
+		// BPS errors can echo request fields, so redact before storing diagnostics.
+		upstreamMessage := fmt.Sprintf("Excel BPS returned HTTP %d", resp.StatusCode)
+		upstreamDetail := ""
+		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+			safeBody := excelBPSSanitizeErrorBody(string(raw), token, account)
+			maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
+			if maxBytes <= 0 {
+				maxBytes = 2048
+			}
+			upstreamDetail, _ = sanitizeErrorBodyForStorage(safeBody, maxBytes)
+			if message := strings.TrimSpace(extractUpstreamErrorMessage([]byte(safeBody))); message != "" {
+				upstreamMessage = truncateString(message, 2048)
+			}
+		}
+		setOpsUpstreamError(c, resp.StatusCode, upstreamMessage, upstreamDetail)
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			Platform: account.Platform, AccountID: account.ID,
+			Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
 			ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
-			UpstreamStatusCode: resp.StatusCode, UpstreamRequestID: requestID,
-			UpstreamURL: basispoints.ResponsesURL, Kind: "http_error", Message: message, Detail: detail,
+			UpstreamStatusCode: resp.StatusCode, UpstreamRequestID: resp.Header.Get("x-request-id"),
+			UpstreamURL: basispoints.ResponsesURL, Kind: "http_error",
+			Message: upstreamMessage, Detail: upstreamDetail, UpstreamResponseBody: upstreamDetail,
 		})
 		code := gjson.GetBytes(raw, "error.code").String()
 		if code == "basispoints_model_access_changed" {
@@ -220,13 +242,37 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 	return result, nil
 }
 
-// Capture only error metadata, never echoed input, headers or arbitrary response
-// bodies. Redact before truncation so a length limit cannot split a credential.
 var excelBPSBearerPattern = regexp.MustCompile(`(?i)\bBearer\s+[^\s"',;<>]+`)
 var excelBPSURLCredentialsPattern = regexp.MustCompile(`(https?://)[^/\s@]+@`)
 
-func excelBPSErrorDiagnostics(raw []byte, requestID, token string, account *Account) (string, string, string) {
-	secrets := []string{token}
+func excelBPSSanitizeErrorBody(raw, token string, account *Account) string {
+	if !json.Valid([]byte(raw)) {
+		return ""
+	}
+	secrets := append([]string{token}, excelBPSAccountSecrets(account)...)
+	fields := make(map[string]string)
+	for _, key := range []string{"message", "code", "type", "param"} {
+		value := gjson.Get(raw, "error."+key)
+		if value.Type != gjson.String {
+			continue
+		}
+		clean := value.String()
+		for _, secret := range secrets {
+			if secret != "" {
+				clean = strings.ReplaceAll(clean, secret, "[redacted]")
+			}
+		}
+		clean = excelBPSBearerPattern.ReplaceAllString(clean, "Bearer [redacted]")
+		clean = excelBPSURLCredentialsPattern.ReplaceAllString(clean, "${1}[redacted]@")
+		clean = sanitizeUpstreamErrorMessage(clean)
+		fields[key] = truncateString(logredact.RedactText(clean, "authorization", "api_key", "apikey", "token", "secret", "key", "cookie", "ticket", "recovery_ticket"), 2048)
+	}
+	encoded, _ := json.Marshal(map[string]any{"error": fields})
+	return string(encoded)
+}
+
+func excelBPSAccountSecrets(account *Account) []string {
+	var secrets []string
 	for _, key := range []string{"access_token", "refresh_token", "id_token", "api_key", "session_key", "cookie"} {
 		if value := account.GetCredential(key); value != "" {
 			secrets = append(secrets, value)
@@ -235,30 +281,5 @@ func excelBPSErrorDiagnostics(raw []byte, requestID, token string, account *Acco
 	if account.Proxy != nil && account.Proxy.Password != "" {
 		secrets = append(secrets, account.Proxy.Password)
 	}
-	clean := func(value string, limit int) string {
-		for _, secret := range secrets {
-			if secret != "" {
-				value = strings.ReplaceAll(value, secret, "[redacted]")
-			}
-		}
-		value = excelBPSBearerPattern.ReplaceAllString(value, "Bearer [redacted]")
-		value = excelBPSURLCredentialsPattern.ReplaceAllString(value, "${1}[redacted]@")
-		value = logredact.RedactText(value, "authorization", "api_key", "apikey", "token", "secret", "key", "cookie", "ticket", "recovery_ticket")
-		return truncateString(value, limit)
-	}
-	message := "Excel BPS rejected the request"
-	fields := map[string]string{}
-	if json.Valid(raw) {
-		for _, key := range []string{"message", "code", "type", "param"} {
-			value := gjson.GetBytes(raw, "error."+key)
-			if value.Type == gjson.String {
-				fields[key] = clean(value.String(), 1024)
-			}
-		}
-	}
-	if fields["message"] != "" {
-		message = fields["message"]
-	}
-	detail, _ := json.Marshal(map[string]any{"error": fields})
-	return message, string(detail), clean(requestID, 256)
+	return secrets
 }
