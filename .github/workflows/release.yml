@@ -15,6 +15,11 @@ on:
         required: false
         type: boolean
         default: false
+      notify_release:
+        description: 'Send the release announcement to Telegram (explicit opt-in)'
+        required: false
+        type: boolean
+        default: false
       dry_run:
         description: 'Build and verify all selected artifacts without publishing'
         required: false
@@ -308,7 +313,7 @@ jobs:
 
       # Send Telegram notification
       - name: Send Telegram Notification
-        if: ${{ env.DRY_RUN != 'true' && env.SIMPLE_RELEASE != 'true' && needs.prepare.outputs.prerelease != 'true' }}
+        if: ${{ inputs.notify_release == true && env.DRY_RUN != 'true' && env.SIMPLE_RELEASE != 'true' && needs.prepare.outputs.prerelease != 'true' }}
         env:
           TAG_MESSAGE: ${{ steps.tag_message.outputs.message }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

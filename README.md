@@ -1,4 +1,4 @@
-> 预发布：[`v2.8.8-rc.1`](https://github.com/ranxi2001/sub2api/releases/tag/v2.8.8-rc.1) 提供原生 780 采票与边缘 IP 直拨，基于 [PR #52](https://github.com/ranxi2001/sub2api/pull/52)。这是试验版本，真实账号能力对照尚未通过；正式版仍为 `v2.8.7`。
+> 当前正式版：[`v2.8.8`](https://github.com/ranxi2001/sub2api/releases/tag/v2.8.8) 提供原生 780 采票、分组模型限制和账号质量检测更新。780 采票默认关闭，票长与模型声明不代表能力保证；详见发布说明。
 
 <div align="center">
 

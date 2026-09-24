@@ -216,6 +216,13 @@ class ReleaseMatrixTest(unittest.TestCase):
         notification = next(step for step in workflow['jobs']['release']['steps'] if step.get('name') == 'Send Telegram Notification')
         self.assertIn("prerelease != 'true'", notification['if'])
 
+    def test_release_announcement_requires_explicit_opt_in(self):
+        workflow = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())
+        trigger = workflow.get('on', workflow.get(True))
+        self.assertIs(trigger['workflow_dispatch']['inputs']['notify_release']['default'], False)
+        step = next(step for step in workflow['jobs']['release']['steps'] if step.get('name') == 'Send Telegram Notification')
+        self.assertIn('inputs.notify_release == true', step['if'])
+
 
 if __name__ == '__main__':
     unittest.main()
