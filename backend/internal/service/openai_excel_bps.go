@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/service/basispoints"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -131,21 +133,18 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
 		// Preserve the original rejection for Ops without exposing it to clients.
 		// BPS errors can echo request fields, so redact before storing diagnostics.
-		safeBody := sanitizeUpstreamErrorMessage(string(raw))
-		if token != "" {
-			safeBody = strings.ReplaceAll(safeBody, token, "[REDACTED]")
-		}
-		upstreamMessage := truncateString(strings.TrimSpace(extractUpstreamErrorMessage([]byte(safeBody))), 2048)
-		if upstreamMessage == "" {
-			upstreamMessage = fmt.Sprintf("Excel BPS returned HTTP %d", resp.StatusCode)
-		}
+		upstreamMessage := fmt.Sprintf("Excel BPS returned HTTP %d", resp.StatusCode)
 		upstreamDetail := ""
 		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+			safeBody := excelBPSSanitizeErrorBody(string(raw), token, account)
 			maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
 			if maxBytes <= 0 {
 				maxBytes = 2048
 			}
 			upstreamDetail, _ = sanitizeErrorBodyForStorage(safeBody, maxBytes)
+			if message := strings.TrimSpace(extractUpstreamErrorMessage([]byte(safeBody))); message != "" {
+				upstreamMessage = truncateString(message, 2048)
+			}
 		}
 		setOpsUpstreamError(c, resp.StatusCode, upstreamMessage, upstreamDetail)
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -217,6 +216,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			result.ClientDisconnect = true
 			return result, ctx.Err()
 		}
+		MarkResponseCommitted(c)
 		if stream {
 			_, _ = c.Writer.WriteString("event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"code\":\"basispoints_stream_incomplete\",\"message\":\"Upstream stream ended before completion\"}}}\n\n")
 			c.Writer.Flush()
@@ -224,6 +224,9 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			c.JSON(502, gin.H{"error": gin.H{"code": "basispoints_stream_incomplete", "message": "Excel BPS stream ended before completion"}})
 		}
 		return result, fmt.Errorf("excel BPS stream incomplete")
+	}
+	if terminal != "response.completed" {
+		MarkResponseCommitted(c)
 	}
 	if !stream {
 		if terminal != "response.completed" {
@@ -237,4 +240,46 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 	}
 	s.bindHTTPResponseAccount(ctx, c, account, result.ResponseID)
 	return result, nil
+}
+
+var excelBPSBearerPattern = regexp.MustCompile(`(?i)\bBearer\s+[^\s"',;<>]+`)
+var excelBPSURLCredentialsPattern = regexp.MustCompile(`(https?://)[^/\s@]+@`)
+
+func excelBPSSanitizeErrorBody(raw, token string, account *Account) string {
+	if !json.Valid([]byte(raw)) {
+		return ""
+	}
+	secrets := append([]string{token}, excelBPSAccountSecrets(account)...)
+	fields := make(map[string]string)
+	for _, key := range []string{"message", "code", "type", "param"} {
+		value := gjson.Get(raw, "error."+key)
+		if value.Type != gjson.String {
+			continue
+		}
+		clean := value.String()
+		for _, secret := range secrets {
+			if secret != "" {
+				clean = strings.ReplaceAll(clean, secret, "[redacted]")
+			}
+		}
+		clean = excelBPSBearerPattern.ReplaceAllString(clean, "Bearer [redacted]")
+		clean = excelBPSURLCredentialsPattern.ReplaceAllString(clean, "${1}[redacted]@")
+		clean = sanitizeUpstreamErrorMessage(clean)
+		fields[key] = truncateString(logredact.RedactText(clean, "authorization", "api_key", "apikey", "token", "secret", "key", "cookie", "ticket", "recovery_ticket"), 2048)
+	}
+	encoded, _ := json.Marshal(map[string]any{"error": fields})
+	return string(encoded)
+}
+
+func excelBPSAccountSecrets(account *Account) []string {
+	var secrets []string
+	for _, key := range []string{"access_token", "refresh_token", "id_token", "api_key", "session_key", "cookie"} {
+		if value := account.GetCredential(key); value != "" {
+			secrets = append(secrets, value)
+		}
+	}
+	if account.Proxy != nil && account.Proxy.Password != "" {
+		secrets = append(secrets, account.Proxy.Password)
+	}
+	return secrets
 }

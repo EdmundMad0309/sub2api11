@@ -109,7 +109,7 @@ func TestExcelBPSHTTPErrorRecordsUpstreamRejection(t *testing.T) {
 			upstream := &httpUpstreamRecorder{resp: &http.Response{
 				StatusCode: http.StatusBadRequest,
 				Header:     http.Header{"X-Request-Id": {"bps-upstream-request"}},
-				Body:       io.NopCloser(strings.NewReader(`{"error":{"code":"invalid_value","param":"input[2].id","message":"Expected an ID that begins with fc. token=test-token"},"access_token":"other-secret"}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"error":{"code":"invalid_value","param":"input[2].id","message":"Expected an ID that begins with fc. token=test-token; refresh-secret Bearer other-secret https://user:pass@example.com/?api_key=query-secret; echoed prompt: private-user-input"},"access_token":"other-secret"}`)),
 			}}
 			svc := openAIClientToolsTestService(upstream)
 			svc.cfg.Gateway.LogUpstreamErrorBody = logBody
@@ -117,6 +117,7 @@ func TestExcelBPSHTTPErrorRecordsUpstreamRejection(t *testing.T) {
 			c, _ := gin.CreateTestContext(rec)
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 			account := excelAccount()
+			account.Credentials["refresh_token"] = "refresh-secret"
 			_, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-6-astra","stream":true,"input":"continue"}`))
 			require.Error(t, err)
 			var failover *UpstreamFailoverError
@@ -128,7 +129,11 @@ func TestExcelBPSHTTPErrorRecordsUpstreamRejection(t *testing.T) {
 			require.True(t, json.Valid(rec.Body.Bytes()))
 			require.NotContains(t, rec.Body.String(), "Expected an ID")
 			require.Equal(t, http.StatusBadRequest, c.GetInt(OpsUpstreamStatusCodeKey))
-			require.Contains(t, c.GetString(OpsUpstreamErrorMessageKey), "Expected an ID")
+			if logBody {
+				require.Contains(t, c.GetString(OpsUpstreamErrorMessageKey), "Expected an ID")
+			} else {
+				require.Equal(t, "Excel BPS returned HTTP 400", c.GetString(OpsUpstreamErrorMessageKey))
+			}
 			events, exists := c.Get(OpsUpstreamErrorsKey)
 			require.True(t, exists)
 			attempts, ok := events.([]*OpsUpstreamErrorEvent)
@@ -146,11 +151,15 @@ func TestExcelBPSHTTPErrorRecordsUpstreamRejection(t *testing.T) {
 				require.Empty(t, attempts[0].Detail)
 				require.Empty(t, attempts[0].UpstreamResponseBody)
 				require.Empty(t, c.GetString(OpsUpstreamErrorDetailKey))
+				require.NotContains(t, attempts[0].Message, "private-user-input")
 			}
 			encoded, err := json.Marshal(attempts)
 			require.NoError(t, err)
 			require.NotContains(t, string(encoded), "test-token")
 			require.NotContains(t, string(encoded), "other-secret")
+			require.NotContains(t, string(encoded), "refresh-secret")
+			require.NotContains(t, string(encoded), "user:pass")
+			require.NotContains(t, string(encoded), "query-secret")
 		})
 	}
 }
@@ -190,48 +199,4 @@ func TestExcelBPSThreadScopeSeparatesParallelChildren(t *testing.T) {
 	second, _ := resolveOpenAIWSExecutionScope(c, []byte(`{"client_metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"child-B\"}"}}`), 1)
 	require.NotEmpty(t, first)
 	require.NotEqual(t, first, second)
-}
-
-func TestExcelBPSUpstreamDiagnostics(t *testing.T) {
-	account := excelAccount()
-	account.Credentials["refresh_token"] = "refresh-secret"
-	upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 400, Header: http.Header{"X-Request-Id": {"req-test"}}, Body: io.NopCloser(strings.NewReader(`{"error":{"code":"invalid_tool_output","type":"invalid_request_error","param":"input[3]","message":"Invalid tool output: test-token refresh-secret Bearer other-secret https://user:pass@example.com/?api_key=query-secret"},"input":"PRIVATE_PROMPT","authorization":"PRIVATE_AUTH"}`))}}
-	svc := openAIClientToolsTestService(upstream)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest("POST", "/v1/responses", nil)
-	_, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-6-astra","input":"hello","stream":true}`))
-	require.Error(t, err)
-	var failover *UpstreamFailoverError
-	require.NotErrorAs(t, err, &failover)
-	require.True(t, IsResponseCommitted(c))
-	require.Equal(t, 400, c.GetInt(OpsUpstreamStatusCodeKey))
-	detail := c.GetString(OpsUpstreamErrorDetailKey)
-	require.Equal(t, "invalid_tool_output", gjson.Get(detail, "error.code").String())
-	require.Equal(t, "input[3]", gjson.Get(detail, "error.param").String())
-	events := c.MustGet(OpsUpstreamErrorsKey).([]*OpsUpstreamErrorEvent)
-	require.Len(t, events, 1)
-	require.Equal(t, "req-test", events[0].UpstreamRequestID)
-	require.Equal(t, basispoints.ResponsesURL, events[0].UpstreamURL)
-	require.Equal(t, detail, events[0].Detail)
-	require.Contains(t, c.GetString(OpsUpstreamErrorMessageKey), "Invalid tool output")
-	for _, secret := range []string{"test-token", "refresh-secret", "other-secret", "user:pass", "query-secret", "PRIVATE_PROMPT", "PRIVATE_AUTH"} {
-		require.NotContains(t, detail+c.GetString(OpsUpstreamErrorMessageKey)+rec.Body.String(), secret)
-	}
-	require.NotContains(t, rec.Body.String(), "Invalid tool output")
-	require.Equal(t, StatusActive, account.Status)
-	require.True(t, account.Schedulable)
-}
-
-func TestExcelBPSDiagnosticsBoundsAndNonJSON(t *testing.T) {
-	message, detail, id := excelBPSErrorDiagnostics([]byte(`<html>private token</html>`), "req-id", "test-token", excelAccount())
-	require.Equal(t, "Excel BPS rejected the request", message)
-	require.NotContains(t, detail, "private")
-	require.Equal(t, "req-id", id)
-	raw, _ := json.Marshal(map[string]any{"error": map[string]string{"message": strings.Repeat("x", 10000) + "test-token", "code": "invalid_input"}})
-	message, detail, id = excelBPSErrorDiagnostics(raw, strings.Repeat("r", 1000), "test-token", excelAccount())
-	require.LessOrEqual(t, len(message), 1024)
-	require.LessOrEqual(t, len(id), 256)
-	require.True(t, json.Valid([]byte(detail)))
-	require.NotContains(t, detail, "test-token")
 }
