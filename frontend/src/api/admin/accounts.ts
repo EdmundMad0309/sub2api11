@@ -1103,6 +1103,9 @@ export async function refreshOllamaCloudUsage(id: number): Promise<OllamaCloudUs
 }
 
 export interface CodexHarvestFlowTicket {
+  transport?: string
+  gateway?: string
+  edge_ip?: string
   model: string
   length?: number
   ready: boolean
