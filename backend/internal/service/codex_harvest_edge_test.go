@@ -37,19 +37,22 @@ func TestCodex780EdgePreservesTLSIdentity(t *testing.T) {
 	defer client.CloseIdleConnections()
 	roots := x509.NewCertPool()
 	roots.AddCert(server.Certificate())
-	transport := client.Transport.(*http.Transport)
+	transport, ok := client.Transport.(*http.Transport)
+	require.True(t, ok)
 	transport.TLSClientConfig.RootCAs = roots
 	require.False(t, transport.TLSClientConfig.InsecureSkipVerify)
 	response, err := client.Do(pinned)
 	require.NoError(t, err)
-	response.Body.Close()
+	require.NoError(t, response.Body.Close())
 	require.Equal(t, "example.com:"+port, <-observed)
 	require.Equal(t, "example.com", <-sni)
 	req.URL.Host = "wrong.example:" + port
 	other, bad, err := codexMintHTTPClient(req, "", "127.0.0.1")
 	require.NoError(t, err)
 	defer other.CloseIdleConnections()
-	other.Transport.(*http.Transport).TLSClientConfig.RootCAs = roots
+	otherTransport, ok := other.Transport.(*http.Transport)
+	require.True(t, ok)
+	otherTransport.TLSClientConfig.RootCAs = roots
 	_, err = other.Do(bad)
 	require.Error(t, err)
 }
@@ -66,7 +69,7 @@ func TestCodex780WebSocketMetadataAndEdgeHost(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 		_, raw, err := conn.Read(r.Context())
 		if err != nil {
 			return
@@ -104,5 +107,7 @@ func TestCodex780EdgeCONNECTDestination(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, "CONNECT 104.18.32.7:443", <-target)
 	require.Equal(t, "chatgpt.com", pinned.Host)
-	require.Equal(t, "chatgpt.com", client.Transport.(*http.Transport).TLSClientConfig.ServerName)
+	transport, ok := client.Transport.(*http.Transport)
+	require.True(t, ok)
+	require.Equal(t, "chatgpt.com", transport.TLSClientConfig.ServerName)
 }

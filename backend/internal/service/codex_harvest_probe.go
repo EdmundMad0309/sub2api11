@@ -188,7 +188,7 @@ func classifyCodexHarvestProbe(ctx context.Context, account *Account, cfg config
 		return shape, "rate_limited"
 	case result.Status == 0:
 		return shape, "network_error"
-	case result.Status != http.StatusOK && !(result.Transport == "websocket" && result.Status == http.StatusSwitchingProtocols):
+	case result.Status != http.StatusOK && (result.Transport != "websocket" || result.Status != http.StatusSwitchingProtocols):
 		return shape, "upstream_error"
 	case result.Err != nil:
 		return shape, "response_incomplete_or_error"

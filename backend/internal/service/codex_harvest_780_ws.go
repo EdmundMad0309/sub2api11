@@ -41,7 +41,7 @@ func requestCodex780WS(req *http.Request, proxy, edge string, payload []byte, se
 		out.Err = errors.New("mint websocket handshake failed")
 		return
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 	conn.SetReadLimit(16 * 1024)
 	out.State = extractOpenAICodexTurnState(resp.Header)
 	incoming := responseCookiePairs(resp)
