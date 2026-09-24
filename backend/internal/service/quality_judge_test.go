@@ -124,6 +124,7 @@ func TestQualityRunnerUsesJudgeBeforeMutatingAccount(t *testing.T) {
 		return &QualityJudgment{Verdict: "correct", Reason: "equivalent"}
 	}
 	plan := pelicanPlan()
+	plan.PelicanConfig.QuestionKind = "candy"
 	plan.PelicanConfig.Quality = &QualityPolicy{ExpectedAnswer: "21", Action: "remove_groups", RemoveGroupIDs: []int64{21}}
 	runner.runOnePlan(context.Background(), plan)
 	require.Equal(t, []string{"passed"}, plans.outcomes)
