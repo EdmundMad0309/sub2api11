@@ -1,5 +1,3 @@
-> 当前正式版：[`v2.8.9`](https://github.com/ranxi2001/sub2api/releases/tag/v2.8.9)。Copilot SDK 需单独安装适配服务，GitHub 登录、后台账号填写和 Codex 配置见 [Copilot SDK 接入教程](docs/copilot-sdk-codex.md)。
-
 <div align="center">
 
 <img src="assets/logo.svg" alt="Sub2API Logo" width="128" />
