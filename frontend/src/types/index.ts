@@ -2495,6 +2495,7 @@ export interface PelicanTestConfig {
 }
 
 export interface ScheduledTestPlan {
+  account_name?: string
   pelican_config?: PelicanTestConfig
   running_until?: string | null
   id: number
