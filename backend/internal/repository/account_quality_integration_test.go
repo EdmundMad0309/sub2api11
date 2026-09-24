@@ -73,7 +73,7 @@ func TestQualityActionsRestoreOwnershipAndStaleRuns(t *testing.T) {
 			_, err = integrationDB.ExecContext(ctx, `UPDATE scheduled_test_plans SET enabled=false WHERE id=$1`, plan.ID)
 			require.NoError(t, err)
 			require.Equal(t, "stale_run", apply("failed"))
-			result := &service.ScheduledTestResult{Status: "failed", ErrorMessage: "answer_mismatch", QualityAction: want, StartedAt: now, FinishedAt: now, PelicanConfig: plan.PelicanConfig}
+			result := &service.ScheduledTestResult{QualityRoundID: "round-one", QualityJudgment: &service.QualityJudgment{Verdict: "incorrect", Reason: "different answer", GroupID: group, ModelID: "chosen-judge"}, Status: "failed", ErrorMessage: "answer_mismatch", QualityAction: want, StartedAt: now, FinishedAt: now, PelicanConfig: plan.PelicanConfig}
 			require.NoError(t, svc.SaveResult(ctx, plan.ID, 100, result))
 			saved, err := svc.ListResults(ctx, plan.ID, 100)
 			require.NoError(t, err)
@@ -82,6 +82,34 @@ func TestQualityActionsRestoreOwnershipAndStaleRuns(t *testing.T) {
 			single, err := svc.GetResult(ctx, plan.ID, saved[0].ID)
 			require.NoError(t, err)
 			require.Equal(t, want, single.QualityAction)
+			require.Equal(t, "incorrect", single.QualityJudgment.Verdict)
+			require.Equal(t, "round-one", single.QualityRoundID)
+			second := *result
+			second.Status = "success"
+			second.ErrorMessage = ""
+			second.QualityJudgment = &service.QualityJudgment{Verdict: "correct", Reason: "equivalent answer"}
+			require.NoError(t, svc.SaveResult(ctx, plan.ID, 100, &second))
+			operations, err := results.ListQualityHistory(ctx, 0, 1)
+			require.NoError(t, err)
+			require.Len(t, operations, 1)
+			require.Equal(t, 1, operations[0].PassedCount)
+			require.Equal(t, 2, operations[0].TotalCount)
+			require.Equal(t, "answer_mismatch", operations[0].ErrorMessage)
+			require.Len(t, operations[0].ResultIDs, 2)
+			require.Empty(t, operations[0].ResponseText, "summary does not include generated output")
+			firstRoundID := operations[0].ID
+			third := second
+			third.QualityRoundID = "round-two"
+			third.QualityAction = "restored"
+			require.NoError(t, svc.SaveResult(ctx, plan.ID, 100, &third))
+			operations, err = results.ListQualityHistory(ctx, 0, 1)
+			require.NoError(t, err)
+			require.Equal(t, "restored", operations[0].QualityAction)
+			previous, err := results.ListQualityHistory(ctx, operations[0].ID, 1)
+			require.NoError(t, err)
+			require.Len(t, previous, 1)
+			require.Equal(t, firstRoundID, previous[0].ID)
+
 			var events int
 			require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT count(*) FROM scheduler_outbox WHERE account_id=$1 AND event_type='account_groups_changed'`, account).Scan(&events))
 			require.Equal(t, 3, events)

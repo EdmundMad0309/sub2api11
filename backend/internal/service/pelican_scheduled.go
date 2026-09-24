@@ -95,6 +95,15 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 			if err != nil {
 				result = &ScheduledTestResult{Status: "failed", ErrorMessage: fmt.Sprint(err), StartedAt: now, FinishedAt: time.Now(), PelicanConfig: plan.PelicanConfig}
 			}
+			if plan.PelicanConfig.Quality != nil && result.Status == "success" {
+				var judgment *QualityJudgment
+				if s.judgeQuality != nil {
+					judgment = s.judgeQuality(runCtx, plan.AccountID, plan.PelicanConfig, result.ResponseText)
+				}
+				applyQualityJudgment(result, judgment)
+				result.FinishedAt = time.Now()
+				result.LatencyMs = result.FinishedAt.Sub(result.StartedAt).Milliseconds()
+			}
 			results[index] = result
 		}(i)
 	}
@@ -114,6 +123,9 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 	succeeded := false
 	for _, result := range results {
 		result.QualityAction = qualityAction
+		if plan.PelicanConfig.Quality != nil {
+			result.QualityRoundID = until.Format(time.RFC3339Nano)
+		}
 		if result.Status == "success" {
 			succeeded = true
 		}
@@ -187,8 +199,9 @@ func intelligenceTestPrompt(cfg *PelicanTestConfig) string {
 }
 func intelligenceTestOutputError(cfg *PelicanTestConfig, output string) string {
 	if cfg.Quality != nil {
-		if strings.TrimSpace(output) != strings.TrimSpace(cfg.Quality.ExpectedAnswer) {
-			return "answer_mismatch"
+		// Completed answers are graded by the configured model in the runner.
+		if strings.TrimSpace(output) == "" {
+			return "Model returned empty output"
 		}
 		return ""
 	}

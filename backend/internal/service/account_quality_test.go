@@ -10,11 +10,11 @@ import (
 func TestQualityValidationAndGrading(t *testing.T) {
 	plan := pelicanPlan()
 	plan.PelicanConfig.QuestionKind = "candy"
-	plan.PelicanConfig.Quality = &QualityPolicy{ExpectedAnswer: "42", Action: "remove_groups", RemoveGroupIDs: []int64{3}}
+	plan.PelicanConfig.Quality = &QualityPolicy{Judge: &QualityJudgeConfig{GroupID: 9, ModelID: "custom-judge", Prompt: "grade"}, ExpectedAnswer: "42", Action: "remove_groups", RemoveGroupIDs: []int64{3}}
 	_, err := nextPlanRun(plan, time.Now())
 	require.NoError(t, err)
 	require.Empty(t, intelligenceTestOutputError(plan.PelicanConfig, " 42\n"))
-	require.Equal(t, "answer_mismatch", intelligenceTestOutputError(plan.PelicanConfig, "The answer is 42"))
+	require.Empty(t, intelligenceTestOutputError(plan.PelicanConfig, "The answer is 42"), "completed output is sent to the configured judge")
 	require.NotContains(t, intelligenceTestPrompt(plan.PelicanConfig), "HTML")
 	for _, change := range []func(*ScheduledTestPlan){
 		func(p *ScheduledTestPlan) { p.PelicanConfig.Quality.ExpectedAnswer = " " },
@@ -36,8 +36,8 @@ func TestQualityValidationAndGrading(t *testing.T) {
 	}
 }
 func TestQualityOutcomeRequiresCompletedWrongAnswerAndAllPassingRecovery(t *testing.T) {
-	passed := &ScheduledTestResult{Status: "success"}
-	wrong := &ScheduledTestResult{Status: "failed", ErrorMessage: "answer_mismatch"}
+	passed := &ScheduledTestResult{Status: "success", QualityJudgment: &QualityJudgment{Verdict: "correct"}}
+	wrong := &ScheduledTestResult{Status: "failed", ErrorMessage: "answer_mismatch", QualityJudgment: &QualityJudgment{Verdict: "incorrect"}}
 	timeout := &ScheduledTestResult{Status: "failed", ErrorMessage: "timeout"}
 	for _, tc := range []struct {
 		results []*ScheduledTestResult
@@ -66,7 +66,7 @@ func TestQualityRunnerAppliesCombinedOutcomeOnce(t *testing.T) {
 	results := &pelicanResults{}
 	runner := &ScheduledTestRunnerService{planRepo: plans, scheduledSvc: NewScheduledTestService(plans, results)}
 	runner.runPelican = func(context.Context, int64, string, *PelicanTestConfig) (*ScheduledTestResult, error) {
-		return &ScheduledTestResult{Status: "failed", ErrorMessage: "answer_mismatch"}, nil
+		return &ScheduledTestResult{Status: "failed", ErrorMessage: "answer_mismatch", QualityJudgment: &QualityJudgment{Verdict: "incorrect"}}, nil
 	}
 	plan := pelicanPlan()
 	plan.PelicanConfig.QuestionKind = "candy"

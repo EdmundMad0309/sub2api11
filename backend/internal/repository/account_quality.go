@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/lib/pq"
 )
 
 func (r *scheduledTestPlanRepository) ListQualityPlans(ctx context.Context) ([]*service.ScheduledTestPlan, error) {
@@ -235,4 +236,51 @@ func jsonEqual(a, b []byte) bool {
 	left, _ := json.Marshal(x)
 	right, _ := json.Marshal(y)
 	return string(left) == string(right)
+}
+
+// Global operation history is cursor-paginated independently of account/rule selection.
+// Response bodies are loaded through the existing per-result detail endpoint.
+
+func (r *scheduledTestResultRepository) ListQualityHistory(ctx context.Context, beforeID int64, limit int) ([]*service.QualityHistoryResult, error) {
+	rows, err := r.db.QueryContext(ctx, `WITH rounds AS (
+ SELECT r.*, a.id AS account_id,a.name AS account_name,
+ row_number() OVER round_window AS row_in_round,
+ count(*) FILTER (WHERE r.status='success') OVER round_window AS passed_count,
+ GREATEST(count(*) OVER round_window,COALESCE((r.pelican_config->>'parallel_count')::int,0)) AS total_count,
+ array_agg(r.id) OVER round_window AS result_ids,
+ min(r.started_at) OVER round_window AS round_started_at,
+ max(r.finished_at) OVER round_window AS round_finished_at,
+ bool_and(r.status='success') OVER round_window AS all_passed,
+ bool_or(r.error_message='answer_mismatch') OVER round_window AS any_wrong
+ FROM scheduled_test_results r JOIN scheduled_test_plans p ON p.id=r.plan_id JOIN accounts a ON a.id=p.account_id
+ WHERE r.pelican_config->'quality' IS NOT NULL AND a.deleted_at IS NULL
+ WINDOW round_window AS (PARTITION BY r.plan_id,COALESCE(NULLIF(r.quality_round_id,''),r.id::text) ORDER BY r.id DESC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+ ) SELECT id,plan_id,CASE WHEN all_passed THEN 'success' ELSE 'failed' END,
+ CASE WHEN any_wrong THEN 'answer_mismatch' ELSE error_message END,
+ latency_ms,round_started_at,round_finished_at,created_at,pelican_config,quality_action,quality_judgment,account_id,account_name,passed_count,total_count,result_ids
+ FROM rounds WHERE row_in_round=1 AND ($1::bigint=0 OR id<$1) ORDER BY id DESC LIMIT $2`, beforeID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	items := make([]*service.QualityHistoryResult, 0)
+	for rows.Next() {
+		item := &service.QualityHistoryResult{}
+		var cfg, judgment []byte
+		if err := rows.Scan(&item.ID, &item.PlanID, &item.Status, &item.ErrorMessage, &item.LatencyMs, &item.StartedAt, &item.FinishedAt, &item.CreatedAt, &cfg, &item.QualityAction, &judgment, &item.AccountID, &item.AccountName, &item.PassedCount, &item.TotalCount, pq.Array(&item.ResultIDs)); err != nil {
+			return nil, err
+		}
+		if len(cfg) > 0 {
+			if err := json.Unmarshal(cfg, &item.PelicanConfig); err != nil {
+				return nil, err
+			}
+		}
+		if len(judgment) > 0 {
+			if err := json.Unmarshal(judgment, &item.QualityJudgment); err != nil {
+				return nil, err
+			}
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }

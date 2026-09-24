@@ -8,16 +8,22 @@ import (
 
 // QualityPolicy is opt-in. Legacy connectivity/HTML tests never modify membership.
 type QualityPolicy struct {
-	ExpectedAnswer string  `json:"expected_answer"`
-	Action         string  `json:"action"`
-	RemoveGroupIDs []int64 `json:"remove_group_ids"`
-	AutoRestore    bool    `json:"auto_restore"`
+	Judge          *QualityJudgeConfig `json:"judge,omitempty"`
+	ExpectedAnswer string              `json:"expected_answer"`
+	Action         string              `json:"action"`
+	RemoveGroupIDs []int64             `json:"remove_group_ids"`
+	AutoRestore    bool                `json:"auto_restore"`
 }
 
 func validateQualityPolicy(plan *ScheduledTestPlan) error {
 	q := plan.PelicanConfig.Quality
 	if q == nil {
 		return nil
+	}
+	if j := q.Judge; j != nil {
+		if j.GroupID <= 0 || strings.TrimSpace(j.ModelID) == "" || len(j.ModelID) > 100 || strings.TrimSpace(j.Prompt) == "" || len(j.Prompt) > 16000 {
+			return fmt.Errorf("judge group, model and grading prompt are required (100/16000 byte limits)")
+		}
 	}
 	if plan.AutoRecover {
 		return fmt.Errorf("quality plans use auto_restore, not connectivity auto_recover")
@@ -52,10 +58,10 @@ func validateQualityPolicy(plan *ScheduledTestPlan) error {
 func qualityOutcome(results []*ScheduledTestResult) string {
 	allPassed := len(results) > 0
 	for _, r := range results {
-		if r != nil && r.Status == "failed" && r.ErrorMessage == "answer_mismatch" {
+		if r != nil && r.QualityJudgment != nil && r.QualityJudgment.Verdict == "incorrect" && r.Status == "failed" && r.ErrorMessage == "answer_mismatch" {
 			return "failed"
 		}
-		if r == nil || r.Status != "success" {
+		if r == nil || r.Status != "success" || r.QualityJudgment == nil || r.QualityJudgment.Verdict != "correct" {
 			allPassed = false
 		}
 	}
@@ -70,4 +76,17 @@ func (s *ScheduledTestService) ListQualityPlans(ctx context.Context) ([]*Schedul
 }
 func (s *ScheduledTestService) TriggerQuality(ctx context.Context, id int64) error {
 	return s.planRepo.TriggerQuality(ctx, id)
+}
+
+func (s *ScheduledTestService) ListQualityHistory(ctx context.Context, beforeID int64) (*QualityHistoryPage, error) {
+	items, err := s.resultRepo.ListQualityHistory(ctx, beforeID, 101)
+	if err != nil {
+		return nil, err
+	}
+	page := &QualityHistoryPage{Items: items}
+	if len(items) > 100 {
+		page.Items = items[:100]
+		page.NextCursor = items[99].ID
+	}
+	return page, nil
 }

@@ -236,3 +236,17 @@ func (h *ScheduledTestHandler) TriggerQuality(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "queued"})
 }
+
+func (h *ScheduledTestHandler) ListQualityHistory(c *gin.Context) {
+	beforeID, err := strconv.ParseInt(c.DefaultQuery("before_id", "0"), 10, 64)
+	if err != nil || beforeID < 0 {
+		response.BadRequest(c, "invalid before_id")
+		return
+	}
+	page, err := h.scheduledTestSvc.ListQualityHistory(c.Request.Context(), beforeID)
+	if err != nil {
+		response.InternalError(c, "Failed to load quality operation history")
+		return
+	}
+	c.JSON(http.StatusOK, page)
+}
