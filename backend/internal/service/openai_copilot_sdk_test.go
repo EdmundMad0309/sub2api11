@@ -119,8 +119,8 @@ func TestCopilotSDKStreamingPreservesCustomCallAndUsage(t *testing.T) {
 func TestCopilotSDKReadStopsOnCancelledClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r, w := io.Pipe()
-	defer w.Close()
-	defer r.Close()
+	defer func() { _ = w.Close() }()
+	defer func() { _ = r.Close() }()
 	ctx, cancel := context.WithCancel(context.Background())
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest("POST", "/v1/responses", nil).WithContext(ctx)
