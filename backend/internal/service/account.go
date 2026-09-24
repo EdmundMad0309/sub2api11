@@ -2158,6 +2158,16 @@ func (a *Account) IsExcelBPSEnabled() bool {
 	return enabled
 }
 
+// IsExcelBPSCacheCreationAsInputEnabled controls local cache-creation billing only.
+// The setting has no effect unless this account uses the Excel/BPS protocol.
+func (a *Account) IsExcelBPSCacheCreationAsInputEnabled() bool {
+	if !a.IsExcelBPSEnabled() {
+		return false
+	}
+	enabled, _ := a.Extra["openai_excel_bps_cache_creation_as_input"].(bool)
+	return enabled
+}
+
 // IsCopilotSDKEnabled selects the stateful Responses sidecar contract. The
 // endpoint and bearer key belong to the sidecar, not GitHub or ChatGPT OAuth.
 func (a *Account) IsCopilotSDKEnabled() bool {
