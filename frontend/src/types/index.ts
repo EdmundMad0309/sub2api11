@@ -2460,7 +2460,15 @@ export interface TotpLogin2FARequest {
 
 // ==================== Scheduled Test Types ====================
 
+export interface QualityPolicy {
+  expected_answer: string
+  action: 'remove_groups' | 'disable_scheduling'
+  remove_group_ids: number[]
+  auto_restore: boolean
+}
+
 export interface PelicanTestConfig {
+  quality?: QualityPolicy
   question_kind?: 'candy' | 'pelican'
   prompt: string
   reasoning_effort: string
@@ -2485,6 +2493,7 @@ export interface ScheduledTestPlan {
 }
 
 export interface ScheduledTestResult {
+  quality_action?: string
   pelican_config?: PelicanTestConfig
   id: number
   plan_id: number
