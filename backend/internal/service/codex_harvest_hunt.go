@@ -85,6 +85,9 @@ func (s *OpenAIGatewayService) huntCodexHarvestTicket(ctx context.Context, accou
 		if !ok {
 			break
 		}
+		if attempt.node.ID != "" {
+			recordCodexHarvestNode(attempt.node.Name, "Selector", 0)
+		}
 		started := time.Now()
 		session := s.harvestAttemptSession(account, model, attempt)
 		result := s.executeCodexHarvestProbe(ctx, account, token, model, attempt.proxy, time.Duration(controls.Speed.AttemptTimeoutSeconds)*time.Second, func() bool {
