@@ -1,3 +1,5 @@
+> 预发布：[`v2.8.8-rc.1`](https://github.com/ranxi2001/sub2api/releases/tag/v2.8.8-rc.1) 提供原生 780 采票与边缘 IP 直拨，基于 [PR #52](https://github.com/ranxi2001/sub2api/pull/52)。这是试验版本，真实账号能力对照尚未通过；正式版仍为 `v2.8.7`。
+
 <div align="center">
 
 <img src="assets/logo.svg" alt="Sub2API Logo" width="128" />
