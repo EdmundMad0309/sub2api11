@@ -471,10 +471,10 @@ func (s *OpenAIGatewayService) lookupCodexTicketLocked(account *Account, model s
 		if gateway == "" {
 			gateway = "unified-95"
 		}
-		if mem != nil && (mem.Transport != protocol || mem.Gateway != gateway) {
+		if mem != nil && (mem.Transport != protocol || !codex780GatewayAllowed(mem.Gateway, gateway)) {
 			mem = nil
 		}
-		if extra != nil && (extra.Transport != protocol || extra.Gateway != gateway) {
+		if extra != nil && (extra.Transport != protocol || !codex780GatewayAllowed(extra.Gateway, gateway)) {
 			extra = nil
 		}
 	}
