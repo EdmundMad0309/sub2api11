@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -321,6 +322,14 @@ func TestRestartInterruptsAndRetentionDeletes(t *testing.T) {
 	target.Status = "running"
 	target.EndedAt = nil
 	require.NoError(t, store.SaveTask(context.Background(), target))
+	now := time.Now().UTC()
+	for i := 0; i < 3; i++ {
+		r := Record{ID: uuid.NewString(), TaskID: target.ID, InstanceID: m.InstanceID(), CreatedAt: now, FinishedAt: &now, Bytes: int64((i + 1) * 10), Partial: i == 0}
+		if i == 1 {
+			r.FinishedAt = nil
+		}
+		require.NoError(t, store.SaveRecord(context.Background(), &r))
+	}
 	m, err = New(store, dir, Config{true, 1024, 7})
 	require.NoError(t, err)
 	defer m.Close()
@@ -328,6 +337,14 @@ func TestRestartInterruptsAndRetentionDeletes(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "interrupted", v.Status)
 	require.Equal(t, "server_restart", v.Reason)
+	require.EqualValues(t, 3, v.Requests)
+	require.EqualValues(t, 2, v.Partial)
+	require.EqualValues(t, 60, v.Bytes)
+	rows, err := m.Records(context.Background(), target.ID, "", false, 10, 0)
+	require.NoError(t, err)
+	for _, r := range rows {
+		require.NotNil(t, r.FinishedAt)
+	}
 	old := time.Now().Add(-8 * 24 * time.Hour)
 	v.EndedAt = &old
 	require.NoError(t, store.SaveTask(context.Background(), v))

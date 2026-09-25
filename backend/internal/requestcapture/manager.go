@@ -110,6 +110,7 @@ func New(store Store, dir string, config Config) (*Manager, error) {
 					return nil, e
 				}
 			}
+			var requests, partial, bytes int64
 			for ro := 0; ; ro += 100 {
 				records, e := store.Records(ctx, t.ID, "", false, 100, ro)
 				if e != nil {
@@ -130,9 +131,21 @@ func New(store Store, dir string, config Config) (*Manager, error) {
 							return nil, e
 						}
 					}
+					requests++
+					bytes += r.Bytes
+					if r.Partial {
+						partial++
+					}
 				}
 				if len(records) < 100 {
 					break
+				}
+			}
+			// A crash can occur between record persistence and task counter flush.
+			if t.Requests != requests || t.Partial != partial || t.Bytes != bytes {
+				t.Requests, t.Partial, t.Bytes = requests, partial, bytes
+				if e = store.SaveTask(ctx, &t); e != nil {
+					return nil, e
 				}
 			}
 		}
