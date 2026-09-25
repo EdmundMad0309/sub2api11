@@ -278,9 +278,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyExcelBPSImageBaseURL:       "",
 
 		SettingKeyUsageShowLongContextBadge: "true",
-		SettingKeyExcelBPSImageBodyLimitMiB:  strconv.Itoa(DefaultExcelBPSImageBodyLimitMiB),
-		SettingKeyExcelBPSImageBudgetMiB:     strconv.Itoa(DefaultExcelBPSImageBudgetMiB),
-		SettingKeyExcelBPSImageMaxRequests:   strconv.Itoa(DefaultExcelBPSImageMaxRequests),
+		SettingKeyExcelBPSImageBodyLimitMiB: strconv.Itoa(DefaultExcelBPSImageBodyLimitMiB),
+		SettingKeyExcelBPSImageBudgetMiB:    strconv.Itoa(DefaultExcelBPSImageBudgetMiB),
+		SettingKeyExcelBPSImageMaxRequests:  strconv.Itoa(DefaultExcelBPSImageMaxRequests),
 	}
 
 	return s.settingRepo.SetMultiple(ctx, defaults)
