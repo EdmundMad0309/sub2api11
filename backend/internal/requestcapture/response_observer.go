@@ -18,9 +18,9 @@ func newBodyFraming(ct string) bodyFraming {
 	return bodyFraming{pending: ct == "", sse: strings.Contains(ct, "text/event-stream")}
 }
 
-func (f *bodyFraming) detect(p []byte) []byte {
+func (f *bodyFraming) detect(p []byte) (prefix, rest []byte) {
 	if !f.pending {
-		return p
+		return nil, p
 	}
 	for len(p) > 0 {
 		b := p[0]
@@ -47,11 +47,11 @@ func (f *bodyFraming) detect(p []byte) []byte {
 			continue
 		}
 		f.pending = false
-		out := append(f.prefix, p...)
+		out := f.prefix
 		f.prefix = nil
-		return out
+		return out, p
 	}
-	return nil
+	return nil, nil
 }
 
 // responseObserver validates JSON incrementally and extracts only shallow
@@ -74,7 +74,12 @@ type responseObserver struct {
 }
 
 func (o *responseObserver) write(p []byte) {
-	p = o.framing.detect(p)
+	prefix, rest := o.framing.detect(p)
+	o.writeDetected(prefix)
+	o.writeDetected(rest)
+}
+
+func (o *responseObserver) writeDetected(p []byte) {
 	if !o.framing.sse {
 		for _, b := range p {
 			o.json.write(b)

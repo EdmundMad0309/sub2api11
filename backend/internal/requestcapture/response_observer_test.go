@@ -18,6 +18,21 @@ import (
 
 const completedCaptureEvent = "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":1}}}\n\n"
 
+func TestBodyFramingDoesNotCopyLargeRead(t *testing.T) {
+	for _, first := range []string{"", "da"} {
+		f := newBodyFraming("")
+		prefix, rest := f.detect([]byte(first))
+		require.Empty(t, prefix)
+		require.Empty(t, rest)
+		input := []byte(strings.TrimPrefix("data:", first) + strings.Repeat("x", 1<<20))
+		prefix, rest = f.detect(input)
+		require.Equal(t, "data:", string(prefix))
+		require.Len(t, rest, 1<<20)
+		require.Same(t, &input[5-len(first)], &rest[0], "framing must not allocate a payload-sized copy")
+		require.True(t, f.sse)
+	}
+}
+
 func TestResponseObserverChunkedTerminals(t *testing.T) {
 	large := strings.Repeat("x", 96<<10)
 	cases := []struct {

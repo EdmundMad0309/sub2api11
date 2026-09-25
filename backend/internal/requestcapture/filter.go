@@ -361,8 +361,15 @@ func (f *bodyFilter) Write(p []byte) []byte {
 	if f.unsupported {
 		return nil
 	}
-	p = f.framing.detect(p)
+	prefix, rest := f.framing.detect(p)
 	f.sse = f.framing.sse
+	if len(prefix) == 0 {
+		return f.writeText(rest)
+	}
+	return append(f.writeText(prefix), f.writeText(rest)...)
+}
+
+func (f *bodyFilter) writeText(p []byte) []byte {
 	if !f.sse {
 		return f.json.Write(p)
 	}
