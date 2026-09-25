@@ -258,7 +258,7 @@ func TestSSEErrorEventWithoutErrorTypeIsRetained(t *testing.T) {
 	m, _ := testManager(t)
 	target := task(t, m, "user", 1, false)
 	s := m.Begin(Meta{UserID: 1})
-	st := s.NewStream("upstream_response", 1, 0, "text/event-stream", nil)
+	st := s.NewStream("upstream_response", 1, 0, "Text/Event-Stream; Charset=UTF-8", nil)
 	for _, b := range []byte("event: error\ndata: {\"message\":\"upstream rejected\"}\n\n") {
 		_, _ = st.Write([]byte{b})
 	}

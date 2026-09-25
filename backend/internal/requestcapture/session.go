@@ -411,7 +411,7 @@ func (st *Stream) Write(p []byte) (int, error) {
 	}
 	if strings.HasSuffix(st.part.Stage, "_response") {
 		st.s.mu.Lock()
-		if strings.Contains(st.part.ContentType, "event-stream") {
+		if strings.Contains(strings.ToLower(st.part.ContentType), "event-stream") {
 			st.s.observeResultLocked(p, &st.diagnostic, &st.diagnosticSkip)
 		} else if !st.diagnosticSkip {
 			if len(st.diagnostic)+len(p) > 16<<10 {
