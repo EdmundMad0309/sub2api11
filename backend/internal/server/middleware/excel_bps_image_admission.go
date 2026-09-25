@@ -37,9 +37,17 @@ func (b *bpsImageAdmissionBudget) acquire(weight int64, maxRequests int) (func()
 	if maxRequests <= 0 {
 		maxRequests = bpsImageMaxRequests
 	}
+	// 字节预算随配置的并发上限放大：每个在途请求至少按
+	// bpsImageMinBodyBytes × bpsImageBodyMultiplier 记账，否则小请求场景下
+	// 512 MiB 预算会先于配置的请求数成为瓶颈（如 100 并发文本只需 128 槽，
+	// 但按 8 MiB/请求记账需要 800 MiB 预算）。
+	budgetBytes := int64(bpsImageBudgetBytes)
+	if scaled := int64(maxRequests) * bpsImageMinBodyBytes * bpsImageBodyMultiplier; scaled > budgetBytes {
+		budgetBytes = scaled
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.requests >= maxRequests || weight > bpsImageBudgetBytes-b.bytes {
+	if b.requests >= maxRequests || weight > budgetBytes-b.bytes {
 		return nil, false
 	}
 	b.bytes += weight
