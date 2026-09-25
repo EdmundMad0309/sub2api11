@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
+	"github.com/Wei-Shaw/sub2api/internal/service/basispoints"
 	"io"
 	"net/http"
 	"net/url"
@@ -78,7 +79,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	if account.IsExcelBPSEnabledForModel(gjson.GetBytes(body, "model").String()) {
-		return s.forwardExcelBPS(ctx, c, account, body, startTime)
+		reason := basispoints.NativeFallbackReason(body)
+		if reason == "" {
+			return s.forwardExcelBPS(ctx, c, account, body, startTime)
+		}
+		c.Header("X-Codex2API-Upstream", "codex")
+		c.Header("X-Codex2API-Basispoints-Bypass", reason)
 	}
 
 	// The SDK adapter owns Lite declarations, custom tools, replay item IDs,
