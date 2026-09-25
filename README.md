@@ -33,7 +33,7 @@
   加入 QQ 群「中转技术交流」
 </td>
 <td align="center" width="50%">
-  <img src="assets/community/coffee-reward.jpg" alt="赞赏码：如果帮到大家可以打赏咖啡" width="100%" />
+  <img src="assets/community/coffee-reward.png" alt="支付宝和微信赞赏码：如果帮到大家可以打赏咖啡" width="100%" />
   <br />
   如果帮到大家可以打赏咖啡！
 </td>
