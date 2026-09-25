@@ -28,7 +28,7 @@
 <table>
 <tr>
 <td align="center" width="50%">
-  <img src="assets/community/qq-relay-tech-group.png" alt="QQ 群：中转技术交流，群号 1004036018" width="100%" />
+  <img src="assets/community/qq-relay-tech-group.png" alt="QQ 群：中转技术交流，群号 1004036018" width="71%" />
   <br />
   加入 QQ 群「中转技术交流」
 </td>
