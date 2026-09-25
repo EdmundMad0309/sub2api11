@@ -779,6 +779,9 @@ export interface SystemSettings {
   request_capture_retention_days: number;
   excel_bps_image_relay_enabled: boolean;
   excel_bps_image_base_url: string;
+  excel_bps_image_body_limit_mib: number;
+  excel_bps_image_budget_mib: number;
+  excel_bps_image_max_requests: number;
 }
 
 export interface UpdateSettingsRequest {
@@ -1104,6 +1107,9 @@ export interface UpdateSettingsRequest {
   request_capture_retention_days?: number;
   excel_bps_image_relay_enabled?: boolean;
   excel_bps_image_base_url?: string;
+  excel_bps_image_body_limit_mib?: number;
+  excel_bps_image_budget_mib?: number;
+  excel_bps_image_max_requests?: number;
 }
 
 /**
