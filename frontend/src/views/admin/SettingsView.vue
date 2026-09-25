@@ -7376,6 +7376,22 @@
               <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.settings.features.excelBpsImages.capacityHint') }}
               </p>
+              <label for="excel-bps-image-max-requests" class="input-label mt-4 block">
+                {{ t('admin.settings.features.excelBpsImages.maxRequests') }}
+              </label>
+              <input
+                id="excel-bps-image-max-requests"
+                v-model.number="form.excel_bps_image_relay_max_requests"
+                type="number"
+                class="input"
+                min="1"
+                max="512"
+                step="1"
+                required
+              />
+              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.features.excelBpsImages.maxRequestsHint') }}
+              </p>
             </div>
           </div>
         </div>
@@ -10310,6 +10326,7 @@ const form = reactive<SettingsForm>({
   request_capture_retention_days: 7,
   excel_bps_image_relay_enabled: false,
   excel_bps_image_base_url: '',
+  excel_bps_image_relay_max_requests: 32,
 });
 
 // 人机验证 UI 状态：单卡片「总开关 + 服务商单选」，落库仍是三个独立
@@ -12110,6 +12127,7 @@ async function saveSettings() {
       request_capture_retention_days: form.request_capture_retention_days,
       excel_bps_image_relay_enabled: form.excel_bps_image_relay_enabled,
       excel_bps_image_base_url: form.excel_bps_image_base_url.trim(),
+      excel_bps_image_relay_max_requests: form.excel_bps_image_relay_max_requests,
     };
 
     // 仅当 openai_fast_policy_settings 已成功从后端加载时才回写，

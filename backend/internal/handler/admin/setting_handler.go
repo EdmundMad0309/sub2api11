@@ -412,8 +412,9 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		RequestCaptureEnabled:       settings.RequestCaptureEnabled,
 		RequestCaptureQuotaMiB:      settings.RequestCaptureQuotaMiB,
 		RequestCaptureRetentionDays: settings.RequestCaptureRetentionDays,
-		ExcelBPSImageRelayEnabled:   settings.ExcelBPSImageRelayEnabled,
-		ExcelBPSImageBaseURL:        settings.ExcelBPSImageBaseURL,
+		ExcelBPSImageRelayEnabled:      settings.ExcelBPSImageRelayEnabled,
+		ExcelBPSImageBaseURL:           settings.ExcelBPSImageBaseURL,
+		ExcelBPSImageRelayMaxRequests:  settings.ExcelBPSImageRelayMaxRequests,
 	}
 
 	// OpenAI fast policy (stored under a dedicated setting key)

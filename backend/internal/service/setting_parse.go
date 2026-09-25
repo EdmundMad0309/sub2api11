@@ -276,6 +276,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyAllowUserViewErrorRequests: "false",
 		SettingKeyExcelBPSImageRelayEnabled:  "false",
 		SettingKeyExcelBPSImageBaseURL:       "",
+		SettingKeyExcelBPSImageRelayMaxRequests: strconv.Itoa(ExcelBPSImageRelayDefaultMaxRequests),
 	}
 
 	return s.settingRepo.SetMultiple(ctx, defaults)
@@ -1048,6 +1049,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 	result.ExcelBPSImageRelayEnabled = settings[SettingKeyExcelBPSImageRelayEnabled] == "true"
 	result.ExcelBPSImageBaseURL = settings[SettingKeyExcelBPSImageBaseURL]
+	result.ExcelBPSImageRelayMaxRequests, _ = strconv.Atoi(strings.TrimSpace(settings[SettingKeyExcelBPSImageRelayMaxRequests]))
+	result.ExcelBPSImageRelayMaxRequests = normalizeExcelBPSImageRelayMaxRequests(result.ExcelBPSImageRelayMaxRequests)
 
 	// Publish Grok default model_mapping options for accounts with empty mapping.
 	xai.SetRuntimeModelMappingOptions(xai.ModelMappingOptions{

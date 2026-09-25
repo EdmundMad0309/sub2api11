@@ -402,8 +402,9 @@ type UpdateSettingsRequest struct {
 	RequestCaptureEnabled       *bool   `json:"request_capture_enabled"`
 	RequestCaptureQuotaMiB      *int64  `json:"request_capture_quota_mib"`
 	RequestCaptureRetentionDays *int    `json:"request_capture_retention_days"`
-	ExcelBPSImageRelayEnabled   *bool   `json:"excel_bps_image_relay_enabled"`
-	ExcelBPSImageBaseURL        *string `json:"excel_bps_image_base_url"`
+	ExcelBPSImageRelayEnabled        *bool   `json:"excel_bps_image_relay_enabled"`
+	ExcelBPSImageBaseURL             *string `json:"excel_bps_image_base_url"`
+	ExcelBPSImageRelayMaxRequests    *int    `json:"excel_bps_image_relay_max_requests"`
 }
 
 // UpdateSettings 更新系统设置
@@ -1723,6 +1724,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.ExcelBPSImageBaseURL
 		}(),
+		ExcelBPSImageRelayMaxRequests: func() int {
+			if req.ExcelBPSImageRelayMaxRequests != nil {
+				return *req.ExcelBPSImageRelayMaxRequests
+			}
+			return previousSettings.ExcelBPSImageRelayMaxRequests
+		}(),
 		AllowUserViewErrorRequests: func() bool {
 			if req.AllowUserViewErrorRequests != nil {
 				return *req.AllowUserViewErrorRequests
@@ -2579,6 +2586,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		RequestCaptureRetentionDays:       updatedSettings.RequestCaptureRetentionDays,
 		ExcelBPSImageRelayEnabled:         updatedSettings.ExcelBPSImageRelayEnabled,
 		ExcelBPSImageBaseURL:              updatedSettings.ExcelBPSImageBaseURL,
+		ExcelBPSImageRelayMaxRequests:     updatedSettings.ExcelBPSImageRelayMaxRequests,
 	}
 	if fastPolicy, err := h.settingService.GetOpenAIFastPolicySettings(c.Request.Context()); err != nil {
 		slog.Error("openai_fast_policy_settings_get_failed", "error", err)

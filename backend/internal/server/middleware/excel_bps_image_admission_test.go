@@ -18,12 +18,13 @@ import (
 )
 
 type bpsImageTestSettings struct {
-	enabled bool
-	err     error
+	enabled     bool
+	err         error
+	maxRequests int
 }
 
 func (s bpsImageTestSettings) GetExcelBPSImageRelaySettings(context.Context) (service.ExcelBPSImageRelaySettings, error) {
-	return service.ExcelBPSImageRelaySettings{Enabled: s.enabled}, s.err
+	return service.ExcelBPSImageRelaySettings{Enabled: s.enabled, MaxRequests: s.maxRequests}, s.err
 }
 
 type bpsImageCountingBody struct {
@@ -180,9 +181,9 @@ func TestExcelBPSImageAdmissionLimitsAndDisabled(t *testing.T) {
 
 func TestExcelBPSImageAdmissionReleaseIsIdempotent(t *testing.T) {
 	budget := &bpsImageAdmissionBudget{}
-	release, ok := budget.acquire(bpsImageBudgetBytes)
+	release, ok := budget.acquire(bpsImageBudgetBytes, 0)
 	require.True(t, ok)
-	_, ok = budget.acquire(1)
+	_, ok = budget.acquire(1, 0)
 	require.False(t, ok)
 	release()
 	release()
@@ -223,4 +224,60 @@ func TestExcelBPSImageAdmissionReleasesAfterCancellation(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/responses", nil))
 	require.Equal(t, http.StatusNoContent, w.Code)
+}
+
+func TestExcelBPSImageAdmissionConfiguredMaxRequests(t *testing.T) {
+	const configured = 2
+	const excess = 3
+	var peak atomic.Int32
+	var active atomic.Int32
+	entered := make(chan struct{}, configured)
+	release := make(chan struct{})
+	var wg sync.WaitGroup
+	t.Cleanup(wg.Wait)
+	r := bpsImageTestRouter(bpsImageTestSettings{enabled: true, maxRequests: configured}, func(c *gin.Context) {
+		n := active.Add(1)
+		for old := peak.Load(); n > old; old = peak.Load() {
+			if peak.CompareAndSwap(old, n) {
+				break
+			}
+		}
+		entered <- struct{}{}
+		<-release
+		active.Add(-1)
+		c.Status(http.StatusNoContent)
+	})
+
+	// Phase A: fill the gate with `configured` held requests.
+	for i := 0; i < configured; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/responses", strings.NewReader("{}")))
+		}()
+	}
+	for i := 0; i < configured; i++ {
+		select {
+		case <-entered:
+		case <-time.After(5 * time.Second):
+			t.Fatal("configured number of requests did not enter")
+		}
+	}
+	require.Equal(t, int32(configured), peak.Load(), "in-flight peak must respect the configured max")
+
+	// Phase B: while the gate is full, synchronous attempts must be rejected
+	// immediately with 503 (never queued).
+	rejected := 0
+	for i := 0; i < excess; i++ {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/responses", strings.NewReader("{}")))
+		if w.Code == http.StatusServiceUnavailable {
+			rejected++
+		}
+	}
+	require.Equal(t, excess, rejected, "excess requests must be rejected with 503")
+
+	close(release)
+	wg.Wait()
 }

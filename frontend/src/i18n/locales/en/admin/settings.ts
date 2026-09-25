@@ -22,7 +22,9 @@ export default {
           baseUrl: 'Public HTTPS address',
           baseUrlHint: 'Enter the public HTTPS origin of this service, without /v1 or another path. The account must still have the Excel / BPS protocol enabled.',
           retentionHint: 'Supports PNG, JPEG, GIF and WebP. Maximum 20 MiB per image and 20 images / 32 MiB per request. Files are temporarily stored in the data directory, capped at 1 GiB / 512 images per process. Links expire 30 minutes after the last submission and files are cleaned in the background. Anyone with a valid link can read the image.',
-          capacityHint: 'When enabled, OpenAI/Composite Responses, Chat and Messages HTTP requests (including text-only requests) share a 64 MiB body limit, a resource budget and a maximum of 32 in-flight requests. Larger requests allow less concurrency. Excess requests receive 503 without being queued in memory. This is not a 200-concurrent-user capacity guarantee.',
+          capacityHint: 'When enabled, OpenAI/Composite Responses, Chat and Messages HTTP requests (including text-only requests) share a 64 MiB body limit, a resource budget and an in-flight request cap. Larger requests allow less concurrency. Excess requests receive 503 without being queued in memory. This is not a 200-concurrent-user capacity guarantee.',
+          maxRequests: 'Maximum in-flight requests',
+          maxRequestsHint: 'Concurrency cap; excess requests are rejected with 503 immediately. Default 32, range 1-512, applies immediately after saving.',
           invalidBaseUrl: 'Enter a valid HTTPS origin without a path, credentials, query or fragment.',
         },
         channelMonitor: {

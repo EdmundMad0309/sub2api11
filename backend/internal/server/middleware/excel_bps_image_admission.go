@@ -15,7 +15,9 @@ const (
 	bpsImageBudgetBytes    = 512 << 20
 	bpsImageBodyMultiplier = 8
 	bpsImageMinBodyBytes   = 1 << 20
-	bpsImageMaxRequests    = 32
+	// bpsImageMaxRequests 仅为兜底默认值；实际在途上限来自
+	// excel_bps_image_relay_max_requests 设置（见 service.ExcelBPSImageRelaySettings）。
+	bpsImageMaxRequests = service.ExcelBPSImageRelayDefaultMaxRequests
 )
 
 type excelBPSImageSettingsReader interface {
@@ -31,10 +33,13 @@ type bpsImageAdmissionBudget struct {
 	requests int
 }
 
-func (b *bpsImageAdmissionBudget) acquire(weight int64) (func(), bool) {
+func (b *bpsImageAdmissionBudget) acquire(weight int64, maxRequests int) (func(), bool) {
+	if maxRequests <= 0 {
+		maxRequests = bpsImageMaxRequests
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.requests >= bpsImageMaxRequests || weight > bpsImageBudgetBytes-b.bytes {
+	if b.requests >= maxRequests || weight > bpsImageBudgetBytes-b.bytes {
 		return nil, false
 	}
 	b.bytes += weight
@@ -98,7 +103,7 @@ func ExcelBPSImageAdmission(settings excelBPSImageSettingsReader, configuredMax 
 		if accounted < bpsImageMinBodyBytes {
 			accounted = bpsImageMinBodyBytes
 		}
-		release, acquired := budget.acquire(accounted * bpsImageBodyMultiplier)
+		release, acquired := budget.acquire(accounted*bpsImageBodyMultiplier, relay.MaxRequests)
 		if !acquired {
 			bpsImageAdmissionError(c, http.StatusServiceUnavailable, "basispoints_image_request_busy", "Image relay request capacity is busy; retry later")
 			return

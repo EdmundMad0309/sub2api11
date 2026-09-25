@@ -112,11 +112,12 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	if err := captureConfig.Validate(); err != nil {
 		return nil, infraerrors.BadRequest("INVALID_REQUEST_CAPTURE_SETTINGS", err.Error())
 	}
-	imageRelay, err := normalizeExcelBPSImageRelaySettings(settings.ExcelBPSImageRelayEnabled, settings.ExcelBPSImageBaseURL)
+	imageRelay, err := normalizeExcelBPSImageRelaySettings(settings.ExcelBPSImageRelayEnabled, settings.ExcelBPSImageBaseURL, settings.ExcelBPSImageRelayMaxRequests)
 	if err != nil {
 		return nil, err
 	}
 	settings.ExcelBPSImageBaseURL = imageRelay.BaseURL
+	settings.ExcelBPSImageRelayMaxRequests = imageRelay.MaxRequests
 	if err := s.validateDefaultSubscriptionGroups(ctx, settings.DefaultSubscriptions); err != nil {
 		return nil, err
 	}
@@ -634,6 +635,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyRequestCaptureRetentionDays] = strconv.Itoa(captureConfig.RetentionDays)
 	updates[SettingKeyExcelBPSImageRelayEnabled] = strconv.FormatBool(imageRelay.Enabled)
 	updates[SettingKeyExcelBPSImageBaseURL] = imageRelay.BaseURL
+	updates[SettingKeyExcelBPSImageRelayMaxRequests] = strconv.Itoa(imageRelay.MaxRequests)
 
 	return updates, nil
 }
