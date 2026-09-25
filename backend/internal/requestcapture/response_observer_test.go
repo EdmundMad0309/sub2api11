@@ -214,10 +214,10 @@ func TestUnknownContentTypeSSEPreservesRedaction(t *testing.T) {
 			f := newBodyFilter("", media)
 			var out strings.Builder
 			for start := 0; start < len(input); start += size {
-				out.Write(f.Write([]byte(input[start:min(start+size, len(input))])))
+				_, _ = out.Write(f.Write([]byte(input[start:min(start+size, len(input))])))
 			}
 			tail, reason := f.End()
-			out.Write(tail)
+			_, _ = out.Write(tail)
 			if media {
 				require.Empty(t, reason)
 			} else {
